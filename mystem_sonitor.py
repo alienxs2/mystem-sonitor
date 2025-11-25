@@ -346,6 +346,112 @@ class IOWidget(Gtk.Box):
         return f"{v/1024**3:.1f} GB/s"
 
 
+class TileContainer(Gtk.EventBox):
+    """Clickable container for tiles with popup settings menu and drag-drop."""
+
+    # Class-level drag data
+    _drag_source = None
+    _drag_targets = [Gtk.TargetEntry.new("TILE_DRAG", Gtk.TargetFlags.SAME_APP, 0)]
+
+    def __init__(self, tile_name: str, inner_widget, config, on_mode_change, on_reorder):
+        super().__init__()
+        self.tile_name = tile_name
+        self.inner = inner_widget
+        self.config = config
+        self.on_mode_change = on_mode_change
+        self.on_reorder = on_reorder
+
+        self.add(inner_widget)
+        self.get_style_context().add_class('tile-container')
+
+        # Click for settings (right-click)
+        self.connect('button-press-event', self._on_click)
+
+        # Drag and drop setup
+        self.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, self._drag_targets, Gdk.DragAction.MOVE)
+        self.drag_dest_set(Gtk.DestDefaults.ALL, self._drag_targets, Gdk.DragAction.MOVE)
+
+        self.connect('drag-begin', self._on_drag_begin)
+        self.connect('drag-data-get', self._on_drag_data_get)
+        self.connect('drag-data-received', self._on_drag_data_received)
+        self.connect('drag-end', self._on_drag_end)
+
+        # Track last value for forwarding
+        self._last_value = 0
+        self._last_details = ""
+
+    def _on_drag_begin(self, widget, context):
+        TileContainer._drag_source = self.tile_name
+        self.get_style_context().add_class('dragging')
+
+    def _on_drag_end(self, widget, context):
+        self.get_style_context().remove_class('dragging')
+        TileContainer._drag_source = None
+
+    def _on_drag_data_get(self, widget, context, selection, info, time):
+        selection.set_text(self.tile_name, -1)
+
+    def _on_drag_data_received(self, widget, context, x, y, selection, info, time):
+        source_name = TileContainer._drag_source
+        if source_name and source_name != self.tile_name:
+            self.on_reorder(source_name, self.tile_name)
+
+    def _on_click(self, widget, event):
+        if event.button == 3:  # Right click for settings
+            self._show_settings_menu(event)
+            return True
+        return False
+
+    def _show_settings_menu(self, event):
+        menu = Gtk.Menu()
+
+        # Header label
+        header = Gtk.MenuItem(label=f"📊 {self.tile_name.upper()}")
+        header.set_sensitive(False)
+        menu.append(header)
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Visualization mode options (radio group)
+        current_mode = self.config.get_tile_mode(self.tile_name)
+        group = []
+
+        for mode in VIS_MODES:
+            item = Gtk.RadioMenuItem.new_with_label(group, f"  {mode.capitalize()}")
+            group = item.get_group()
+            item.set_active(mode == current_mode)
+            item.connect('toggled', self._on_mode_select, mode)
+            menu.append(item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Reset to global
+        reset_item = Gtk.MenuItem(label="↺ Use global default")
+        reset_item.connect('activate', self._on_reset_to_global)
+        menu.append(reset_item)
+
+        menu.show_all()
+        menu.popup_at_pointer(event)
+
+    def _on_mode_select(self, item, mode):
+        if item.get_active() and self.config.get_tile_mode(self.tile_name) != mode:
+            self.config.set_tile_mode(self.tile_name, mode)
+            self.on_mode_change(self.tile_name)
+
+    def _on_reset_to_global(self, item):
+        self.config.tile_modes.pop(self.tile_name, None)
+        self.config.save()
+        self.on_mode_change(self.tile_name)
+
+    def set_value(self, value: float, details: str = ""):
+        self._last_value = value
+        self._last_details = details
+        self.inner.set_value(value, details)
+
+    def set_values(self, read: float, write: float):
+        """For IOWidget compatibility."""
+        self.inner.set_values(read, write)
+
+
 # ============================================================================
 # GPU Monitor
 # ============================================================================
@@ -376,11 +482,23 @@ class GPUMonitor:
 # ============================================================================
 
 class ConfigManager:
+    # Default tile orders for each layout
+    DEFAULT_ORDERS = {
+        "compact": ["cpu", "ram", "swap", "gpu", "vram", "disk", "net", "temp"],
+        "wide": ["cpu", "ram", "gpu", "temp"],
+        "vertical": ["cpu", "ram", "swap", "gpu", "vram", "temp", "disk", "net"],
+        "mini": ["cpu", "ram", "gpu"],
+    }
+
     def __init__(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         self.layout = "compact"
-        self.vis_mode = "bar"
+        self.vis_mode = "bar"  # Default/global mode
         self.autostart = False
+        # Individual tile visualization modes
+        self.tile_modes = {}  # e.g. {"cpu": "gauge", "ram": "ring"}
+        # Tile order per layout
+        self.tile_orders = {}  # e.g. {"compact": ["ram", "cpu", ...]}
         self.load()
 
     def load(self):
@@ -393,6 +511,12 @@ class ConfigManager:
                             if k == 'layout' and v in LAYOUTS: self.layout = v
                             elif k == 'vis_mode' and v in VIS_MODES: self.vis_mode = v
                             elif k == 'autostart': self.autostart = v == 'true'
+                            elif k.startswith('tile_') and v in VIS_MODES:
+                                tile_name = k[5:]  # Remove 'tile_' prefix
+                                self.tile_modes[tile_name] = v
+                            elif k.startswith('order_'):
+                                layout_name = k[6:]  # Remove 'order_' prefix
+                                self.tile_orders[layout_name] = v.split(',')
         except: pass
 
     def save(self):
@@ -401,7 +525,46 @@ class ConfigManager:
                 f.write(f"layout={self.layout}\n")
                 f.write(f"vis_mode={self.vis_mode}\n")
                 f.write(f"autostart={'true' if self.autostart else 'false'}\n")
+                for tile_name, mode in self.tile_modes.items():
+                    f.write(f"tile_{tile_name}={mode}\n")
+                for layout_name, order in self.tile_orders.items():
+                    f.write(f"order_{layout_name}={','.join(order)}\n")
         except: pass
+
+    def get_tile_mode(self, tile_name: str) -> str:
+        """Get visualization mode for specific tile, or global default."""
+        return self.tile_modes.get(tile_name, self.vis_mode)
+
+    def set_tile_mode(self, tile_name: str, mode: str):
+        """Set visualization mode for specific tile."""
+        if mode == self.vis_mode:
+            # If same as global, remove individual setting
+            self.tile_modes.pop(tile_name, None)
+        else:
+            self.tile_modes[tile_name] = mode
+        self.save()
+
+    def get_tile_order(self, layout: str = None) -> list:
+        """Get tile order for current or specified layout."""
+        layout = layout or self.layout
+        if layout in self.tile_orders:
+            return self.tile_orders[layout]
+        return self.DEFAULT_ORDERS.get(layout, self.DEFAULT_ORDERS["compact"])
+
+    def set_tile_order(self, order: list, layout: str = None):
+        """Set tile order for current or specified layout."""
+        layout = layout or self.layout
+        self.tile_orders[layout] = order
+        self.save()
+
+    def swap_tiles(self, tile1: str, tile2: str, layout: str = None):
+        """Swap positions of two tiles."""
+        layout = layout or self.layout
+        order = self.get_tile_order(layout).copy()
+        if tile1 in order and tile2 in order:
+            i1, i2 = order.index(tile1), order.index(tile2)
+            order[i1], order[i2] = order[i2], order[i1]
+            self.set_tile_order(order, layout)
 
     def set_autostart(self, enabled: bool):
         self.autostart = enabled
@@ -521,25 +684,29 @@ class MystemSonitor(Gtk.Window):
         # Settings menu
         menu = Gtk.Menu()
 
-        # Visualization submenu
+        # Visualization submenu (radio group)
         vis_menu = Gtk.Menu()
         vis_item = Gtk.MenuItem(label="Visualization")
         vis_item.set_submenu(vis_menu)
+        vis_group = []
         for mode in VIS_MODES:
-            item = Gtk.CheckMenuItem(label=mode.capitalize())
+            item = Gtk.RadioMenuItem.new_with_label(vis_group, mode.capitalize())
+            vis_group = item.get_group()
             item.set_active(mode == self.config.vis_mode)
-            item.connect('activate', self._on_vis_change, mode)
+            item.connect('toggled', self._on_vis_change, mode)
             vis_menu.append(item)
         menu.append(vis_item)
 
-        # Layout submenu
+        # Layout submenu (radio group)
         layout_menu = Gtk.Menu()
         layout_item = Gtk.MenuItem(label="Layout")
         layout_item.set_submenu(layout_menu)
+        layout_group = []
         for layout in LAYOUTS:
-            item = Gtk.CheckMenuItem(label=layout.capitalize())
+            item = Gtk.RadioMenuItem.new_with_label(layout_group, layout.capitalize())
+            layout_group = item.get_group()
             item.set_active(layout == self.config.layout)
-            item.connect('activate', self._on_layout_change, layout)
+            item.connect('toggled', self._on_layout_change, layout)
             layout_menu.append(item)
         menu.append(layout_item)
 
@@ -579,14 +746,14 @@ class MystemSonitor(Gtk.Window):
         self.main_box.pack_start(header, False, False, 0)
 
     def _on_vis_change(self, item, mode):
-        if item.get_active():
+        if item.get_active() and self.config.vis_mode != mode:
             self.config.vis_mode = mode
             self.config.save()
             self._build_tiles()
             self.show_all()
 
     def _on_layout_change(self, item, layout):
-        if item.get_active():
+        if item.get_active() and self.config.layout != layout:
             self.config.layout = layout
             self.config.save()
             self._build_tiles()
@@ -605,13 +772,30 @@ class MystemSonitor(Gtk.Window):
         dialog.run()
         dialog.destroy()
 
-    def _create_widget(self, label: str, unit: str = "%"):
-        mode = self.config.vis_mode
-        if mode == "gauge": return GaugeWidget(label, unit)
-        elif mode == "arc": return ArcWidget(label, unit)
-        elif mode == "ring": return RingWidget(label, unit)
-        elif mode == "minimal": return MinimalWidget(label, unit)
-        else: return BarWidget(label, unit)
+    def _create_widget(self, tile_name: str, label: str, unit: str = "%"):
+        """Create widget with tile-specific visualization mode."""
+        mode = self.config.get_tile_mode(tile_name)
+        if mode == "gauge": widget = GaugeWidget(label, unit)
+        elif mode == "arc": widget = ArcWidget(label, unit)
+        elif mode == "ring": widget = RingWidget(label, unit)
+        elif mode == "minimal": widget = MinimalWidget(label, unit)
+        else: widget = BarWidget(label, unit)
+        return widget
+
+    def _wrap_tile(self, tile_name: str, widget):
+        """Wrap widget in TileContainer for click settings and drag-drop."""
+        return TileContainer(tile_name, widget, self.config, self._on_tile_mode_change, self._on_tile_reorder)
+
+    def _on_tile_mode_change(self, tile_name: str):
+        """Rebuild tiles when individual tile mode changes."""
+        self._build_tiles()
+        self.show_all()
+
+    def _on_tile_reorder(self, source: str, target: str):
+        """Handle tile reorder via drag-drop."""
+        self.config.swap_tiles(source, target)
+        self._build_tiles()
+        self.show_all()
 
     def _build_tiles(self):
         for child in self.content.get_children():
@@ -632,69 +816,89 @@ class MystemSonitor(Gtk.Window):
         self._apply_size()
 
     def _build_compact(self):
+        order = self.config.get_tile_order("compact")
         row1 = Gtk.Box(spacing=5, homogeneous=True)
         row2 = Gtk.Box(spacing=5, homogeneous=True)
 
-        self.tiles = {
-            "cpu": self._create_widget("CPU"),
-            "ram": self._create_widget("RAM"),
-            "swap": self._create_widget("Swap"),
-            "gpu": self._create_widget("GPU"),
-            "vram": self._create_widget("VRAM"),
-            "disk": IOWidget("Disk"),
-            "net": IOWidget("Network"),
-            "temp": self._create_widget("Temp", "°C"),
+        # Create all widgets
+        tile_widgets = {
+            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
+            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
+            "swap": self._wrap_tile("swap", self._create_widget("swap", "Swap")),
+            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
+            "vram": self._wrap_tile("vram", self._create_widget("vram", "VRAM")),
+            "disk": self._wrap_tile("disk", IOWidget("Disk")),
+            "net": self._wrap_tile("net", IOWidget("Network")),
+            "temp": self._wrap_tile("temp", self._create_widget("temp", "Temp", "°C")),
         }
 
-        for w in [self.tiles["cpu"], self.tiles["ram"], self.tiles["swap"], self.tiles["gpu"]]:
-            row1.pack_start(w, True, True, 0)
-        for w in [self.tiles["vram"], self.tiles["disk"], self.tiles["net"], self.tiles["temp"]]:
-            row2.pack_start(w, True, True, 0)
+        self.tiles = tile_widgets
+
+        # Add in order
+        for i, name in enumerate(order):
+            if name in tile_widgets:
+                if i < 4:
+                    row1.pack_start(tile_widgets[name], True, True, 0)
+                else:
+                    row2.pack_start(tile_widgets[name], True, True, 0)
 
         self.content.pack_start(row1, False, False, 0)
         self.content.pack_start(row2, False, False, 0)
 
     def _build_wide(self):
+        order = self.config.get_tile_order("wide")
         row = Gtk.Box(spacing=3, homogeneous=True)
 
-        self.tiles = {
-            "cpu": self._create_widget("CPU"),
-            "ram": self._create_widget("RAM"),
-            "gpu": self._create_widget("GPU"),
-            "temp": self._create_widget("Temp", "°C"),
+        tile_widgets = {
+            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
+            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
+            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
+            "temp": self._wrap_tile("temp", self._create_widget("temp", "Temp", "°C")),
         }
 
-        for w in self.tiles.values():
-            row.pack_start(w, True, True, 0)
+        self.tiles = tile_widgets
+
+        for name in order:
+            if name in tile_widgets:
+                row.pack_start(tile_widgets[name], True, True, 0)
 
         self.content.pack_start(row, False, False, 0)
 
     def _build_vertical(self):
-        self.tiles = {
-            "cpu": self._create_widget("CPU"),
-            "ram": self._create_widget("RAM"),
-            "swap": self._create_widget("Swap"),
-            "gpu": self._create_widget("GPU"),
-            "vram": self._create_widget("VRAM"),
-            "temp": self._create_widget("Temp", "°C"),
-            "disk": IOWidget("Disk"),
-            "net": IOWidget("Network"),
+        order = self.config.get_tile_order("vertical")
+
+        tile_widgets = {
+            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
+            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
+            "swap": self._wrap_tile("swap", self._create_widget("swap", "Swap")),
+            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
+            "vram": self._wrap_tile("vram", self._create_widget("vram", "VRAM")),
+            "temp": self._wrap_tile("temp", self._create_widget("temp", "Temp", "°C")),
+            "disk": self._wrap_tile("disk", IOWidget("Disk")),
+            "net": self._wrap_tile("net", IOWidget("Network")),
         }
 
-        for w in self.tiles.values():
-            self.content.pack_start(w, False, False, 2)
+        self.tiles = tile_widgets
+
+        for name in order:
+            if name in tile_widgets:
+                self.content.pack_start(tile_widgets[name], False, False, 2)
 
     def _build_mini(self):
+        order = self.config.get_tile_order("mini")
         row = Gtk.Box(spacing=5, homogeneous=True)
 
-        self.tiles = {
-            "cpu": self._create_widget("CPU"),
-            "ram": self._create_widget("RAM"),
-            "gpu": self._create_widget("GPU"),
+        tile_widgets = {
+            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
+            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
+            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
         }
 
-        for w in self.tiles.values():
-            row.pack_start(w, True, True, 0)
+        self.tiles = tile_widgets
+
+        for name in order:
+            if name in tile_widgets:
+                row.pack_start(tile_widgets[name], True, True, 0)
 
         self.content.pack_start(row, False, False, 0)
 
@@ -773,6 +977,19 @@ class MystemSonitor(Gtk.Window):
         menu { background-color: #2a2a2e; }
         menuitem { color: #ccc; }
         menuitem:hover { background-color: #444; }
+
+        .tile-container {
+            border-radius: 6px;
+            transition: all 200ms ease;
+        }
+        .tile-container:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        .dragging {
+            opacity: 0.6;
+            background-color: rgba(76, 175, 80, 0.2);
+            border: 1px dashed #4CAF50;
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
