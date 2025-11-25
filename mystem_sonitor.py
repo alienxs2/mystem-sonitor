@@ -37,8 +37,10 @@ AUTOSTART_DIR = os.path.expanduser("~/.config/autostart")
 AUTOSTART_FILE = os.path.join(AUTOSTART_DIR, "mystem-sonitor.desktop")
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Visualization modes
-VIS_MODES = ["bar", "gauge", "arc", "ring", "text", "wave", "terminal"]
+# Visualization modes for regular tiles (terminal is default)
+VIS_MODES = ["terminal", "gauge", "text", "wave", "glow"]
+# Visualization modes for IO tiles (Disk/Net)
+IO_MODES = ["terminal", "bars", "text"]
 # Layouts
 LAYOUTS = ["compact", "wide", "vertical", "mini", "dashboard", "panel"]
 
@@ -194,49 +196,6 @@ class BaseWidget(Gtk.DrawingArea):
         cr.close_path()
 
 
-class BarWidget(BaseWidget):
-    """Clean horizontal progress bar."""
-
-    def on_draw(self, widget, cr):
-        w = widget.get_allocated_width()
-        h = widget.get_allocated_height()
-
-        self._draw_tile_bg(cr, w, h)
-
-        color = get_health_color(self.value, self.theme)
-        text_color = hex_to_rgb(self.theme["text"])
-        dim_color = hex_to_rgb(self.theme["text_dim"])
-
-        # Label (top-left)
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(13)
-        cr.set_source_rgb(*dim_color)
-        cr.move_to(10, 20)
-        cr.show_text(self.label)
-
-        # Value (top-right)
-        cr.set_source_rgb(*color)
-        cr.set_font_size(16)
-        text = f"{self.value:.0f}{self.unit}"
-        ext = cr.text_extents(text)
-        cr.move_to(w - ext.width - 10, 22)
-        cr.show_text(text)
-
-        # Progress bar background
-        bar_y = h - 22
-        bar_h = 10
-        cr.set_source_rgb(0.15, 0.15, 0.18)
-        self._rounded_rect(cr, 10, bar_y, w - 20, bar_h, 5)
-        cr.fill()
-
-        # Progress bar fill
-        bar_w = max(0, (w - 20) * (self.value / 100))
-        if bar_w > 0:
-            cr.set_source_rgb(*color)
-            self._rounded_rect(cr, 10, bar_y, bar_w, bar_h, 5)
-            cr.fill()
-
-
 class GaugeWidget(BaseWidget):
     """Speedometer-style gauge - clean and readable."""
 
@@ -283,105 +242,6 @@ class GaugeWidget(BaseWidget):
         cr.set_font_size(11)
         ext = cr.text_extents(self.label)
         cr.move_to(cx - ext.width / 2, h - 6)
-        cr.show_text(self.label)
-
-
-class ArcWidget(BaseWidget):
-    """Half-circle arc - elegant and simple."""
-
-    def __init__(self, label: str = "", unit: str = "%"):
-        super().__init__(label, unit)
-        self.set_size_request(100, 70)
-
-    def on_draw(self, widget, cr):
-        w = widget.get_allocated_width()
-        h = widget.get_allocated_height()
-
-        self._draw_tile_bg(cr, w, h)
-
-        color = get_health_color(self.value, self.theme)
-        dim_color = hex_to_rgb(self.theme["text_dim"])
-
-        cx, cy = w / 2, h * 0.58
-        radius = min(w, h) * 0.38
-
-        # Background arc
-        cr.set_line_width(7)
-        cr.set_source_rgb(0.18, 0.18, 0.20)
-        cr.arc(cx, cy, radius, math.pi, 2 * math.pi)
-        cr.stroke()
-
-        # Value arc
-        cr.set_source_rgb(*color)
-        cr.set_line_cap(cairo.LINE_CAP_ROUND)
-        end_angle = math.pi + (self.value / 100) * math.pi
-        cr.arc(cx, cy, radius, math.pi, end_angle)
-        cr.stroke()
-
-        # Value text
-        cr.set_source_rgb(*color)
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(18)
-        text = f"{self.value:.0f}"
-        ext = cr.text_extents(text)
-        cr.move_to(cx - ext.width / 2, cy + 5)
-        cr.show_text(text)
-
-        # Label
-        cr.set_source_rgb(*dim_color)
-        cr.set_font_size(10)
-        ext = cr.text_extents(self.label)
-        cr.move_to(cx - ext.width / 2, h - 5)
-        cr.show_text(self.label)
-
-
-class RingWidget(BaseWidget):
-    """Full circular ring - modern style."""
-
-    def __init__(self, label: str = "", unit: str = "%"):
-        super().__init__(label, unit)
-        self.set_size_request(80, 80)
-
-    def on_draw(self, widget, cr):
-        w = widget.get_allocated_width()
-        h = widget.get_allocated_height()
-
-        self._draw_tile_bg(cr, w, h)
-
-        color = get_health_color(self.value, self.theme)
-        dim_color = hex_to_rgb(self.theme["text_dim"])
-
-        cx, cy = w / 2, h / 2
-        radius = min(w, h) * 0.32
-
-        # Background ring
-        cr.set_line_width(6)
-        cr.set_source_rgb(0.18, 0.18, 0.20)
-        cr.arc(cx, cy, radius, 0, 2 * math.pi)
-        cr.stroke()
-
-        # Value ring
-        cr.set_source_rgb(*color)
-        cr.set_line_cap(cairo.LINE_CAP_ROUND)
-        start = -math.pi / 2
-        end = start + (self.value / 100) * 2 * math.pi
-        cr.arc(cx, cy, radius, start, end)
-        cr.stroke()
-
-        # Value text
-        cr.set_source_rgb(*color)
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(16)
-        text = f"{self.value:.0f}"
-        ext = cr.text_extents(text)
-        cr.move_to(cx - ext.width / 2, cy + 6)
-        cr.show_text(text)
-
-        # Label below
-        cr.set_source_rgb(*dim_color)
-        cr.set_font_size(9)
-        ext = cr.text_extents(self.label)
-        cr.move_to(cx - ext.width / 2, cy + radius + 16)
         cr.show_text(self.label)
 
 
@@ -490,6 +350,69 @@ class WaveWidget(BaseWidget):
         cr.show_text(self.label)
 
 
+class GlowWidget(BaseWidget):
+    """Glowing orb style - like a sun/lamp with radial gradient."""
+
+    def __init__(self, label: str = "", unit: str = "%"):
+        super().__init__(label, unit)
+        self.set_size_request(100, 80)
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        self._draw_tile_bg(cr, w, h)
+
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        cx, cy = w / 2, h * 0.45
+        radius = min(w, h) * 0.32
+
+        # Create radial gradient for glow effect
+        # Intensity based on value (brighter when higher)
+        intensity = 0.3 + (self.value / 100) * 0.7
+
+        gradient = cairo.RadialGradient(cx, cy, 0, cx, cy, radius * 1.5)
+
+        # Inner glow (bright)
+        gradient.add_color_stop_rgba(0, color[0], color[1], color[2], intensity)
+        # Middle (fading)
+        gradient.add_color_stop_rgba(0.5, color[0], color[1], color[2], intensity * 0.5)
+        # Outer (very faint)
+        gradient.add_color_stop_rgba(1.0, color[0], color[1], color[2], 0.05)
+
+        cr.set_source(gradient)
+        cr.arc(cx, cy, radius * 1.5, 0, 2 * math.pi)
+        cr.fill()
+
+        # Inner bright core
+        core_gradient = cairo.RadialGradient(cx, cy, 0, cx, cy, radius * 0.6)
+        core_gradient.add_color_stop_rgba(0, 1.0, 1.0, 1.0, intensity * 0.8)
+        core_gradient.add_color_stop_rgba(0.5, color[0], color[1], color[2], intensity)
+        core_gradient.add_color_stop_rgba(1.0, color[0], color[1], color[2], intensity * 0.3)
+
+        cr.set_source(core_gradient)
+        cr.arc(cx, cy, radius * 0.6, 0, 2 * math.pi)
+        cr.fill()
+
+        # Value text in center
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(18)
+        text = f"{self.value:.0f}"
+        ext = cr.text_extents(text)
+        cr.move_to(cx - ext.width / 2, cy + 6)
+        cr.show_text(text)
+
+        # Label below
+        cr.set_source_rgb(*dim_color)
+        cr.set_font_size(11)
+        ext = cr.text_extents(self.label)
+        cr.move_to(cx - ext.width / 2, h - 5)
+        cr.show_text(self.label)
+
+
 class TerminalWidget(BaseWidget):
     """Terminal-style display - looks like mini console."""
 
@@ -566,25 +489,50 @@ class TerminalWidget(BaseWidget):
             cr.fill()
 
 
-IO_MODES = ["bars", "split", "compact", "terminal"]
+class CompactWidget(BaseWidget):
+    """Very compact widget for narrow vertical layout."""
+
+    def __init__(self, label: str = "", unit: str = "%"):
+        super().__init__(label, unit)
+        self.set_size_request(55, 40)
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        self._draw_tile_bg(cr, w, h, 4)
+
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label (top)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(9)
+        cr.set_source_rgb(*dim_color)
+        ext = cr.text_extents(self.label)
+        cr.move_to((w - ext.width) / 2, 12)
+        cr.show_text(self.label)
+
+        # Value (center)
+        cr.set_source_rgb(*color)
+        cr.set_font_size(14)
+        text = f"{self.value:.0f}"
+        ext = cr.text_extents(text)
+        cr.move_to((w - ext.width) / 2, h - 8)
+        cr.show_text(text)
 
 
-class IOWidget(Gtk.DrawingArea):
-    """I/O display widget for Disk/Network with multiple styles."""
+class CompactIOWidget(Gtk.DrawingArea):
+    """Compact I/O widget for narrow vertical layout."""
 
-    def __init__(self, label: str = "", mode: str = "bars"):
+    def __init__(self, label: str = ""):
         super().__init__()
         self.label_text = label
         self.read_val = 0
         self.write_val = 0
         self.theme = THEMES["default"]
-        self.mode = mode
-        self.set_size_request(100, 70)
+        self.set_size_request(55, 40)
         self.connect('draw', self.on_draw)
-
-    def set_mode(self, mode: str):
-        self.mode = mode
-        self.queue_draw()
 
     def set_values(self, read: float, write: float):
         self.read_val = read
@@ -595,11 +543,75 @@ class IOWidget(Gtk.DrawingArea):
         self.theme = theme
         self.queue_draw()
 
-    def _fmt(self, v: float) -> str:
+    def _fmt_short(self, v: float) -> str:
         if v < 1024: return f"{v:.0f}B"
-        if v < 1024**2: return f"{v/1024:.1f}K"
-        if v < 1024**3: return f"{v/1024**2:.1f}M"
-        return f"{v/1024**3:.1f}G"
+        if v < 1024**2: return f"{v/1024:.0f}K"
+        if v < 1024**3: return f"{v/1024**2:.0f}M"
+        return f"{v/1024**3:.0f}G"
+
+    def _rounded_rect(self, cr, x, y, w, h, r):
+        cr.new_path()
+        cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+        cr.arc(x + w - r, y + r, r, 1.5 * math.pi, 2 * math.pi)
+        cr.arc(x + w - r, y + h - r, r, 0, 0.5 * math.pi)
+        cr.arc(x + r, y + h - r, r, 0.5 * math.pi, math.pi)
+        cr.close_path()
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        # Background
+        bg = hex_to_rgb(self.theme["tile_bg"])
+        cr.set_source_rgb(*bg)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 4)
+        cr.fill()
+
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(9)
+        cr.set_source_rgb(*dim_color)
+        ext = cr.text_extents(self.label_text)
+        cr.move_to((w - ext.width) / 2, 12)
+        cr.show_text(self.label_text)
+
+        # R/W values
+        cr.set_font_size(9)
+        cr.set_source_rgb(*self.theme["good"])
+        r_text = f"↓{self._fmt_short(self.read_val)}"
+        ext = cr.text_extents(r_text)
+        cr.move_to((w - ext.width) / 2, 25)
+        cr.show_text(r_text)
+
+        cr.set_source_rgb(*self.theme["warn"])
+        w_text = f"↑{self._fmt_short(self.write_val)}"
+        ext = cr.text_extents(w_text)
+        cr.move_to((w - ext.width) / 2, 36)
+        cr.show_text(w_text)
+
+
+class IOWidget(Gtk.DrawingArea):
+    """I/O display widget for Disk/Network - Terminal style only."""
+
+    def __init__(self, label: str = ""):
+        super().__init__()
+        self.label_text = label
+        self.read_val = 0
+        self.write_val = 0
+        self.theme = THEMES["default"]
+        self.set_size_request(120, 70)
+        self.connect('draw', self.on_draw)
+
+    def set_values(self, read: float, write: float):
+        self.read_val = read
+        self.write_val = write
+        self.queue_draw()
+
+    def set_theme(self, theme: dict):
+        self.theme = theme
+        self.queue_draw()
 
     def _fmt_long(self, v: float) -> str:
         if v < 1024: return f"{v:.0f} B/s"
@@ -615,159 +627,11 @@ class IOWidget(Gtk.DrawingArea):
         cr.arc(x + r, y + h - r, r, 0.5 * math.pi, math.pi)
         cr.close_path()
 
-    def _get_bar_percent(self, val: float) -> float:
-        """Convert value to percent for bar display (log scale)."""
-        if val <= 0:
-            return 0
-        # Use log scale: 0B=0%, 1KB=25%, 1MB=50%, 100MB=75%, 1GB=100%
-        import math
-        log_val = math.log10(max(1, val))
-        return min(100, max(0, log_val / 9 * 100))  # 10^9 = 1GB
-
     def on_draw(self, widget, cr):
+        """Terminal/console style."""
         w = widget.get_allocated_width()
         h = widget.get_allocated_height()
 
-        # Background
-        bg = hex_to_rgb(self.theme["tile_bg"])
-        cr.set_source_rgb(*bg)
-        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 6)
-        cr.fill()
-
-        if self.mode == "bars":
-            self._draw_bars(cr, w, h)
-        elif self.mode == "split":
-            self._draw_split(cr, w, h)
-        elif self.mode == "compact":
-            self._draw_compact(cr, w, h)
-        elif self.mode == "terminal":
-            self._draw_terminal(cr, w, h)
-        else:
-            self._draw_bars(cr, w, h)
-
-    def _draw_bars(self, cr, w, h):
-        """Dual horizontal bars style."""
-        dim_color = hex_to_rgb(self.theme["text_dim"])
-
-        # Label
-        cr.set_source_rgb(*dim_color)
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(12)
-        ext = cr.text_extents(self.label_text)
-        cr.move_to(w / 2 - ext.width / 2, 16)
-        cr.show_text(self.label_text)
-
-        bar_h = 8
-        bar_w = w - 20
-
-        # Download bar
-        y1 = 26
-        cr.set_source_rgb(0.15, 0.15, 0.18)
-        self._rounded_rect(cr, 10, y1, bar_w, bar_h, 4)
-        cr.fill()
-
-        read_pct = self._get_bar_percent(self.read_val)
-        if read_pct > 0:
-            cr.set_source_rgb(*self.theme["good"])
-            self._rounded_rect(cr, 10, y1, max(4, bar_w * read_pct / 100), bar_h, 4)
-            cr.fill()
-
-        # Download label
-        cr.set_source_rgb(*self.theme["good"])
-        cr.set_font_size(10)
-        cr.move_to(10, y1 + bar_h + 12)
-        cr.show_text(f"↓ {self._fmt(self.read_val)}")
-
-        # Upload bar
-        y2 = 48
-        cr.set_source_rgb(0.15, 0.15, 0.18)
-        self._rounded_rect(cr, 10, y2, bar_w, bar_h, 4)
-        cr.fill()
-
-        write_pct = self._get_bar_percent(self.write_val)
-        if write_pct > 0:
-            cr.set_source_rgb(*self.theme["warn"])
-            self._rounded_rect(cr, 10, y2, max(4, bar_w * write_pct / 100), bar_h, 4)
-            cr.fill()
-
-        # Upload label
-        cr.set_source_rgb(*self.theme["warn"])
-        cr.set_font_size(10)
-        text = f"↑ {self._fmt(self.write_val)}"
-        ext = cr.text_extents(text)
-        cr.move_to(w - ext.width - 10, y2 + bar_h + 12)
-        cr.show_text(text)
-
-    def _draw_split(self, cr, w, h):
-        """Split left/right style."""
-        dim_color = hex_to_rgb(self.theme["text_dim"])
-
-        # Label at top
-        cr.set_source_rgb(*dim_color)
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(11)
-        ext = cr.text_extents(self.label_text)
-        cr.move_to(w / 2 - ext.width / 2, 14)
-        cr.show_text(self.label_text)
-
-        # Divider line
-        cr.set_source_rgb(0.25, 0.25, 0.28)
-        cr.set_line_width(1)
-        cr.move_to(w / 2, 22)
-        cr.line_to(w / 2, h - 8)
-        cr.stroke()
-
-        # Left side - Download
-        cr.set_source_rgb(*self.theme["good"])
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(9)
-        cr.move_to(8, 30)
-        cr.show_text("↓ IN")
-
-        cr.set_font_size(14)
-        text = self._fmt(self.read_val)
-        cr.move_to(8, 50)
-        cr.show_text(text)
-
-        # Right side - Upload
-        cr.set_source_rgb(*self.theme["warn"])
-        cr.set_font_size(9)
-        cr.move_to(w / 2 + 8, 30)
-        cr.show_text("↑ OUT")
-
-        cr.set_font_size(14)
-        text = self._fmt(self.write_val)
-        cr.move_to(w / 2 + 8, 50)
-        cr.show_text(text)
-
-    def _draw_compact(self, cr, w, h):
-        """Compact single-line style."""
-        dim_color = hex_to_rgb(self.theme["text_dim"])
-
-        # Label
-        cr.set_source_rgb(*dim_color)
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(11)
-        ext = cr.text_extents(self.label_text)
-        cr.move_to(w / 2 - ext.width / 2, 18)
-        cr.show_text(self.label_text)
-
-        # Download
-        cr.set_source_rgb(*self.theme["good"])
-        cr.set_font_size(16)
-        text = f"↓{self._fmt(self.read_val)}"
-        cr.move_to(8, h / 2 + 10)
-        cr.show_text(text)
-
-        # Upload
-        cr.set_source_rgb(*self.theme["warn"])
-        text = f"↑{self._fmt(self.write_val)}"
-        ext = cr.text_extents(text)
-        cr.move_to(w - ext.width - 8, h / 2 + 10)
-        cr.show_text(text)
-
-    def _draw_terminal(self, cr, w, h):
-        """Terminal/console style."""
         # Terminal background
         cr.set_source_rgb(0.05, 0.06, 0.05)
         self._rounded_rect(cr, 1, 1, w - 2, h - 2, 5)
@@ -809,6 +673,184 @@ class IOWidget(Gtk.DrawingArea):
         cr.show_text(f"tx: {self._fmt_long(self.write_val)}")
 
 
+class IOBarsWidget(Gtk.DrawingArea):
+    """I/O display with horizontal bars for read/write."""
+
+    def __init__(self, label: str = ""):
+        super().__init__()
+        self.label_text = label
+        self.read_val = 0
+        self.write_val = 0
+        self.max_val = 1024 * 1024  # 1MB/s default max
+        self.theme = THEMES["default"]
+        self.set_size_request(120, 70)
+        self.connect('draw', self.on_draw)
+
+    def set_values(self, read: float, write: float):
+        self.read_val = read
+        self.write_val = write
+        # Dynamic scaling
+        max_v = max(read, write, self.max_val * 0.1)
+        self.max_val = max(self.max_val * 0.95, max_v * 1.2)
+        self.queue_draw()
+
+    def set_theme(self, theme: dict):
+        self.theme = theme
+        self.queue_draw()
+
+    def _fmt_short(self, v: float) -> str:
+        if v < 1024: return f"{v:.0f}B"
+        if v < 1024**2: return f"{v/1024:.0f}K"
+        if v < 1024**3: return f"{v/1024**2:.1f}M"
+        return f"{v/1024**3:.1f}G"
+
+    def _rounded_rect(self, cr, x, y, w, h, r):
+        cr.new_path()
+        cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+        cr.arc(x + w - r, y + r, r, 1.5 * math.pi, 2 * math.pi)
+        cr.arc(x + w - r, y + h - r, r, 0, 0.5 * math.pi)
+        cr.arc(x + r, y + h - r, r, 0.5 * math.pi, math.pi)
+        cr.close_path()
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        # Background
+        bg = hex_to_rgb(self.theme["tile_bg"])
+        cr.set_source_rgb(*bg)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 5)
+        cr.fill()
+
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(11)
+        cr.set_source_rgb(*dim_color)
+        ext = cr.text_extents(self.label_text)
+        cr.move_to((w - ext.width) / 2, 14)
+        cr.show_text(self.label_text)
+
+        bar_x = 10
+        bar_w = w - 20
+        bar_h = 10
+
+        # Read bar background
+        read_pct = min(1.0, self.read_val / self.max_val) if self.max_val > 0 else 0
+        cr.set_source_rgb(0.15, 0.15, 0.18)
+        self._rounded_rect(cr, bar_x, 22, bar_w, bar_h, 3)
+        cr.fill()
+
+        # Read bar fill - clip to background shape
+        if read_pct > 0.01:
+            fill_w = max(4, bar_w * read_pct)  # Min 4px
+            cr.save()
+            self._rounded_rect(cr, bar_x, 22, bar_w, bar_h, 3)
+            cr.clip()
+            cr.set_source_rgb(*self.theme["good"])
+            cr.rectangle(bar_x, 22, fill_w, bar_h)
+            cr.fill()
+            cr.restore()
+
+        cr.set_font_size(9)
+        cr.set_source_rgb(*self.theme["good"])
+        cr.move_to(bar_x, 44)
+        cr.show_text(f"↓ {self._fmt_short(self.read_val)}")
+
+        # Write bar background
+        write_pct = min(1.0, self.write_val / self.max_val) if self.max_val > 0 else 0
+        cr.set_source_rgb(0.15, 0.15, 0.18)
+        self._rounded_rect(cr, bar_x, 48, bar_w, bar_h, 3)
+        cr.fill()
+
+        # Write bar fill - clip to background shape
+        if write_pct > 0.01:
+            fill_w = max(4, bar_w * write_pct)  # Min 4px
+            cr.save()
+            self._rounded_rect(cr, bar_x, 48, bar_w, bar_h, 3)
+            cr.clip()
+            cr.set_source_rgb(*self.theme["warn"])
+            cr.rectangle(bar_x, 48, fill_w, bar_h)
+            cr.fill()
+            cr.restore()
+
+        cr.set_source_rgb(*self.theme["warn"])
+        cr.move_to(bar_x, h - 5)
+        cr.show_text(f"↑ {self._fmt_short(self.write_val)}")
+
+
+class IOTextWidget(Gtk.DrawingArea):
+    """Simple text-based I/O display."""
+
+    def __init__(self, label: str = ""):
+        super().__init__()
+        self.label_text = label
+        self.read_val = 0
+        self.write_val = 0
+        self.theme = THEMES["default"]
+        self.set_size_request(100, 65)
+        self.connect('draw', self.on_draw)
+
+    def set_values(self, read: float, write: float):
+        self.read_val = read
+        self.write_val = write
+        self.queue_draw()
+
+    def set_theme(self, theme: dict):
+        self.theme = theme
+        self.queue_draw()
+
+    def _fmt_short(self, v: float) -> str:
+        if v < 1024: return f"{v:.0f}B"
+        if v < 1024**2: return f"{v/1024:.0f}K"
+        if v < 1024**3: return f"{v/1024**2:.1f}M"
+        return f"{v/1024**3:.1f}G"
+
+    def _rounded_rect(self, cr, x, y, w, h, r):
+        cr.new_path()
+        cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+        cr.arc(x + w - r, y + r, r, 1.5 * math.pi, 2 * math.pi)
+        cr.arc(x + w - r, y + h - r, r, 0, 0.5 * math.pi)
+        cr.arc(x + r, y + h - r, r, 0.5 * math.pi, math.pi)
+        cr.close_path()
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        # Background
+        bg = hex_to_rgb(self.theme["tile_bg"])
+        cr.set_source_rgb(*bg)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 5)
+        cr.fill()
+
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(11)
+        cr.set_source_rgb(*dim_color)
+        ext = cr.text_extents(self.label_text)
+        cr.move_to((w - ext.width) / 2, 16)
+        cr.show_text(self.label_text)
+
+        # Read value
+        cr.set_font_size(16)
+        cr.set_source_rgb(*self.theme["good"])
+        r_text = f"↓{self._fmt_short(self.read_val)}"
+        ext = cr.text_extents(r_text)
+        cr.move_to((w - ext.width) / 2, 36)
+        cr.show_text(r_text)
+
+        # Write value
+        cr.set_source_rgb(*self.theme["warn"])
+        w_text = f"↑{self._fmt_short(self.write_val)}"
+        ext = cr.text_extents(w_text)
+        cr.move_to((w - ext.width) / 2, 55)
+        cr.show_text(w_text)
+
+
 # ============================================================================
 # Clickable Tile Container
 # ============================================================================
@@ -822,6 +864,8 @@ class TileContainer(Gtk.EventBox):
         self.on_mode_cycle = on_mode_cycle
         self.inner = None
 
+        self.set_above_child(True)  # EventBox receives events before child
+        self.set_visible_window(False)  # Transparent window
         self.get_style_context().add_class('tile-container')
         self.connect('button-press-event', self._on_click)
 
@@ -885,12 +929,15 @@ class ConfigManager:
     def __init__(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         self.layout = "compact"
-        self.vis_mode = "bar"
-        self.io_mode = "bars"
+        self.vis_mode = "terminal"  # Default mode
+        self.io_mode = "terminal"   # Default IO mode
         self.theme = "default"
         self.autostart = False
-        self.tile_modes = {}
-        self.io_modes = {}
+        self.tile_modes = {}    # For regular tiles
+        self.io_tile_modes = {} # For IO tiles (disk, net)
+        self.window_x = -1
+        self.window_y = -1
+        self.tile_order = []
         self.load()
 
     def load(self):
@@ -910,10 +957,16 @@ class ConfigManager:
                                 self.theme = v
                             elif k == 'autostart':
                                 self.autostart = v == 'true'
+                            elif k == 'window_x':
+                                self.window_x = int(v)
+                            elif k == 'window_y':
+                                self.window_y = int(v)
+                            elif k == 'tile_order' and v:
+                                self.tile_order = v.split(',')
+                            elif k.startswith('io_') and v in IO_MODES:
+                                self.io_tile_modes[k[3:]] = v
                             elif k.startswith('tile_') and v in VIS_MODES:
                                 self.tile_modes[k[5:]] = v
-                            elif k.startswith('io_') and v in IO_MODES:
-                                self.io_modes[k[3:]] = v
         except:
             pass
 
@@ -925,9 +978,13 @@ class ConfigManager:
                 f.write(f"io_mode={self.io_mode}\n")
                 f.write(f"theme={self.theme}\n")
                 f.write(f"autostart={'true' if self.autostart else 'false'}\n")
+                f.write(f"window_x={self.window_x}\n")
+                f.write(f"window_y={self.window_y}\n")
+                if self.tile_order:
+                    f.write(f"tile_order={','.join(self.tile_order)}\n")
                 for name, mode in self.tile_modes.items():
                     f.write(f"tile_{name}={mode}\n")
-                for name, mode in self.io_modes.items():
+                for name, mode in self.io_tile_modes.items():
                     f.write(f"io_{name}={mode}\n")
         except:
             pass
@@ -936,21 +993,26 @@ class ConfigManager:
         return self.tile_modes.get(name, self.vis_mode)
 
     def get_io_mode(self, name: str) -> str:
-        return self.io_modes.get(name, self.io_mode)
+        return self.io_tile_modes.get(name, self.io_mode)
 
-    def cycle_io_mode(self, name: str):
-        current = self.get_io_mode(name)
-        idx = IO_MODES.index(current) if current in IO_MODES else 0
-        new_mode = IO_MODES[(idx + 1) % len(IO_MODES)]
-        self.io_modes[name] = new_mode
+    def set_window_pos(self, x: int, y: int):
+        self.window_x = x
+        self.window_y = y
         self.save()
-        return new_mode
 
     def cycle_tile_mode(self, name: str):
         current = self.get_tile_mode(name)
         idx = VIS_MODES.index(current) if current in VIS_MODES else 0
         new_mode = VIS_MODES[(idx + 1) % len(VIS_MODES)]
         self.tile_modes[name] = new_mode
+        self.save()
+        return new_mode
+
+    def cycle_io_mode(self, name: str):
+        current = self.get_io_mode(name)
+        idx = IO_MODES.index(current) if current in IO_MODES else 0
+        new_mode = IO_MODES[(idx + 1) % len(IO_MODES)]
+        self.io_tile_modes[name] = new_mode
         self.save()
         return new_mode
 
@@ -1046,6 +1108,28 @@ class MystemSonitor(Gtk.Window):
         # Update timer
         GLib.timeout_add(500, lambda: (self._update(), False)[-1])
         GLib.timeout_add(UPDATE_INTERVAL_MS, self._update)
+
+        # Restore window position
+        self.connect('realize', self._on_realize)
+        self.connect('configure-event', self._on_configure)
+        self.connect('destroy', self._on_destroy)
+
+    def _on_realize(self, widget):
+        """Restore window position after window is realized."""
+        if self.config.window_x >= 0 and self.config.window_y >= 0:
+            self.move(self.config.window_x, self.config.window_y)
+
+    def _on_configure(self, widget, event):
+        """Save window position on move."""
+        x, y = self.get_position()
+        if x != self.config.window_x or y != self.config.window_y:
+            self.config.window_x = x
+            self.config.window_y = y
+        return False
+
+    def _on_destroy(self, widget):
+        """Save config on close."""
+        self.config.save()
 
     def _on_button_press(self, w, e):
         if e.button == 1 and e.y < 40:
@@ -1160,16 +1244,14 @@ class MystemSonitor(Gtk.Window):
         theme = THEMES[self.config.theme]
 
         widgets = {
+            "terminal": TerminalWidget,
             "gauge": GaugeWidget,
-            "arc": ArcWidget,
-            "ring": RingWidget,
             "text": TextWidget,
             "wave": WaveWidget,
-            "terminal": TerminalWidget,
-            "bar": BarWidget,
+            "glow": GlowWidget,
         }
 
-        widget_class = widgets.get(mode, BarWidget)
+        widget_class = widgets.get(mode, TerminalWidget)
         w = widget_class(label, unit)
         w.set_theme(theme)
         return w
@@ -1221,20 +1303,41 @@ class MystemSonitor(Gtk.Window):
         container.set_widget(widget)
         return container
 
+    def _on_io_tile_click(self, tile_name: str):
+        self.config.cycle_io_mode(tile_name)
+        self._rebuild_io_tile(tile_name)
+
+    def _create_io_widget(self, tile_name: str, label: str):
+        mode = self.config.get_io_mode(tile_name)
+        theme = THEMES[self.config.theme]
+
+        widgets = {
+            "terminal": IOWidget,
+            "bars": IOBarsWidget,
+            "text": IOTextWidget,
+        }
+
+        widget_class = widgets.get(mode, IOWidget)
+        w = widget_class(label)
+        w.set_theme(theme)
+        return w
+
+    def _rebuild_io_tile(self, tile_name: str):
+        if tile_name not in self.tiles:
+            return
+
+        container = self.tiles[tile_name]
+        labels = {"disk": "Disk", "net": "Net"}
+        label = labels.get(tile_name, tile_name.upper())
+        widget = self._create_io_widget(tile_name, label)
+        container.set_widget(widget)
+        container.show_all()
+
     def _make_io_tile(self, name: str, label: str):
-        mode = self.config.get_io_mode(name)
         container = TileContainer(name, self._on_io_tile_click)
-        widget = IOWidget(label, mode)
-        widget.set_theme(THEMES[self.config.theme])
+        widget = self._create_io_widget(name, label)
         container.set_widget(widget)
         return container
-
-    def _on_io_tile_click(self, tile_name: str):
-        new_mode = self.config.cycle_io_mode(tile_name)
-        if tile_name in self.tiles:
-            container = self.tiles[tile_name]
-            if container.inner and hasattr(container.inner, 'set_mode'):
-                container.inner.set_mode(new_mode)
 
     def _build_compact(self):
         """Compact 2x4 grid layout."""
@@ -1278,15 +1381,31 @@ class MystemSonitor(Gtk.Window):
 
         self.content.pack_start(row, True, True, 0)
 
+    def _make_compact_tile(self, name: str, label: str, unit: str = "%"):
+        """Create compact tile for vertical layout."""
+        container = TileContainer(name, self._on_tile_click)
+        widget = CompactWidget(label, unit)
+        widget.set_theme(THEMES[self.config.theme])
+        container.set_widget(widget)
+        return container
+
+    def _make_compact_io_tile(self, name: str, label: str):
+        """Create compact IO tile for vertical layout."""
+        container = TileContainer(name, lambda n: None)
+        widget = CompactIOWidget(label)
+        widget.set_theme(THEMES[self.config.theme])
+        container.set_widget(widget)
+        return container
+
     def _build_vertical(self):
-        """Vertical stacked layout."""
+        """Vertical stacked layout - compact narrow version."""
         self.tiles = {
-            "cpu": self._make_tile("cpu", "CPU"),
-            "ram": self._make_tile("ram", "RAM"),
-            "gpu": self._make_tile("gpu", "GPU"),
-            "temp": self._make_tile("temp", "Temp", "°C"),
-            "disk": self._make_io_tile("disk", "Disk"),
-            "net": self._make_io_tile("net", "Net"),
+            "cpu": self._make_compact_tile("cpu", "CPU"),
+            "ram": self._make_compact_tile("ram", "RAM"),
+            "gpu": self._make_compact_tile("gpu", "GPU"),
+            "temp": self._make_compact_tile("temp", "Temp", "°C"),
+            "disk": self._make_compact_io_tile("disk", "Disk"),
+            "net": self._make_compact_io_tile("net", "Net"),
         }
 
         for name in ["cpu", "ram", "gpu", "temp", "disk", "net"]:
@@ -1351,7 +1470,7 @@ class MystemSonitor(Gtk.Window):
         sizes = {
             "compact": (440, 175),
             "wide": (660, 95),
-            "vertical": (140, 450),
+            "vertical": (70, 290),  # Compact narrow vertical
             "mini": (300, 85),
             "dashboard": (520, 180),
             "panel": (420, 85),
@@ -1359,6 +1478,16 @@ class MystemSonitor(Gtk.Window):
         w, h = sizes.get(self.config.layout, (440, 175))
         self.set_default_size(w, h)
         self.resize(w, h)
+
+        # Adjust margins for vertical layout
+        if self.config.layout == "vertical":
+            self.content.set_margin_start(4)
+            self.content.set_margin_end(4)
+            self.content.set_margin_bottom(4)
+        else:
+            self.content.set_margin_start(8)
+            self.content.set_margin_end(8)
+            self.content.set_margin_bottom(8)
 
     def _set_icon(self):
         icon_path = os.path.join(APP_DIR, "icon.png")
