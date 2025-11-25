@@ -732,31 +732,31 @@ class CompactWidget(BaseWidget):
 
     def __init__(self, label: str = "", unit: str = "%"):
         super().__init__(label, unit)
-        self.set_size_request(55, 40)
+        self.set_size_request(48, 38)
 
     def on_draw(self, widget, cr):
         w = widget.get_allocated_width()
         h = widget.get_allocated_height()
 
-        self._draw_tile_bg(cr, w, h, 4)
+        self._draw_tile_bg(cr, w, h, 3)
 
         color = get_health_color(self.value, self.theme)
         dim_color = hex_to_rgb(self.theme["text_dim"])
 
         # Label (top)
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(9)
+        cr.set_font_size(8)
         cr.set_source_rgb(*dim_color)
         ext = cr.text_extents(self.label)
-        cr.move_to((w - ext.width) / 2, 12)
+        cr.move_to((w - ext.width) / 2, 11)
         cr.show_text(self.label)
 
         # Value (center)
         cr.set_source_rgb(*color)
-        cr.set_font_size(14)
+        cr.set_font_size(13)
         text = f"{self.value:.0f}"
         ext = cr.text_extents(text)
-        cr.move_to((w - ext.width) / 2, h - 8)
+        cr.move_to((w - ext.width) / 2, h - 7)
         cr.show_text(text)
 
 
@@ -769,7 +769,7 @@ class CompactIOWidget(Gtk.DrawingArea):
         self.read_val = 0
         self.write_val = 0
         self.theme = THEMES["default"]
-        self.set_size_request(55, 40)
+        self.set_size_request(48, 38)
         self.connect('draw', self.on_draw)
 
     def set_values(self, read: float, write: float):
@@ -788,31 +788,31 @@ class CompactIOWidget(Gtk.DrawingArea):
         # Background
         bg = hex_to_rgb(self.theme["tile_bg"])
         cr.set_source_rgb(*bg)
-        draw_rounded_rect(cr, 1, 1, w - 2, h - 2, 4)
+        draw_rounded_rect(cr, 1, 1, w - 2, h - 2, 3)
         cr.fill()
 
         dim_color = hex_to_rgb(self.theme["text_dim"])
 
         # Label
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(9)
+        cr.set_font_size(8)
         cr.set_source_rgb(*dim_color)
         ext = cr.text_extents(self.label_text)
-        cr.move_to((w - ext.width) / 2, 12)
+        cr.move_to((w - ext.width) / 2, 10)
         cr.show_text(self.label_text)
 
         # R/W values
-        cr.set_font_size(9)
+        cr.set_font_size(8)
         cr.set_source_rgb(*self.theme["good"])
         r_text = f"R:{fmt_bytes_short(self.read_val)}"
         ext = cr.text_extents(r_text)
-        cr.move_to((w - ext.width) / 2, 25)
+        cr.move_to((w - ext.width) / 2, 22)
         cr.show_text(r_text)
 
         cr.set_source_rgb(*self.theme["warn"])
         w_text = f"W:{fmt_bytes_short(self.write_val)}"
         ext = cr.text_extents(w_text)
-        cr.move_to((w - ext.width) / 2, 36)
+        cr.move_to((w - ext.width) / 2, 33)
         cr.show_text(w_text)
 
 
@@ -1475,7 +1475,7 @@ class MystemSonitor(Gtk.Window):
             "compact": (440, 175),
             "wide": (660, 95),
             "vertical": (140, 520),  # Full-featured vertical stack
-            "vertical-mini": (70, 290),  # Maximally narrow vertical
+            "vertical-mini": (58, 280),  # Maximally narrow width
             "mini": (300, 85),
             "dashboard": (520, 180),
             "panel": (420, 85),
