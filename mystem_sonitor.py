@@ -42,7 +42,7 @@ VIS_MODES = ["terminal", "gauge", "text", "wave", "glow"]
 # Visualization modes for IO tiles (Disk/Net)
 IO_MODES = ["terminal", "bars", "text"]
 # Layouts
-LAYOUTS = ["compact", "wide", "vertical", "vertical-mini", "mini", "dashboard", "panel"]
+LAYOUTS = ["compact", "wide", "vertical", "mini", "dashboard", "panel"]
 
 # Color themes
 THEMES = {
@@ -1286,7 +1286,6 @@ class MystemSonitor(Gtk.Window):
             "compact": self._build_compact,
             "wide": self._build_wide,
             "vertical": self._build_vertical,
-            "vertical-mini": self._build_vertical_mini,
             "mini": self._build_mini,
             "dashboard": self._build_dashboard,
             "panel": self._build_panel,
@@ -1392,30 +1391,6 @@ class MystemSonitor(Gtk.Window):
         for name in ["cpu", "ram", "gpu", "temp", "disk", "net"]:
             self.content.pack_start(self.tiles[name], False, False, 0)
 
-    def _build_vertical_mini(self):
-        """Maximally narrow vertical layout using compact widgets."""
-        theme = THEMES[self.config.theme]
-
-        self.tiles = {}
-        metrics = [
-            ("cpu", "CPU", "%"),
-            ("ram", "RAM", "%"),
-            ("gpu", "GPU", "%"),
-            ("temp", "Temp", "°C"),
-        ]
-
-        for name, label, unit in metrics:
-            widget = CompactWidget(label, unit)
-            widget.set_theme(theme)
-            self.tiles[name] = widget
-            self.content.pack_start(widget, False, False, 0)
-
-        for io_name, io_label in [("disk", "Disk"), ("net", "Net")]:
-            widget = CompactIOWidget(io_label)
-            widget.set_theme(theme)
-            self.tiles[io_name] = widget
-            self.content.pack_start(widget, False, False, 0)
-
     def _build_mini(self):
         """Mini compact layout."""
         row = Gtk.Box(spacing=4, homogeneous=True)
@@ -1475,8 +1450,7 @@ class MystemSonitor(Gtk.Window):
         sizes = {
             "compact": (440, 175),
             "wide": (660, 95),
-            "vertical": (140, 520),  # Full-featured vertical stack
-            "vertical-mini": (58, 520),  # Maximally narrow width, same height
+            "vertical": (140, 520),
             "mini": (300, 85),
             "dashboard": (520, 180),
             "panel": (420, 85),
@@ -1485,35 +1459,11 @@ class MystemSonitor(Gtk.Window):
         self.set_default_size(w, h)
         self.resize(w, h)
 
-        # Adjust header and margins for vertical-mini
-        is_narrow = (self.config.layout == "vertical-mini")
-
-        # Hide/show header elements for narrow layout
-        self.title_label.set_visible(not is_narrow)
-        self.header_spacer.set_visible(not is_narrow)
-        self.theme_btn.set_visible(not is_narrow)
-        self.settings_btn.set_visible(not is_narrow)
-        self.min_btn.set_visible(not is_narrow)
-
-        # Adjust header margins for narrow layout
-        if is_narrow:
-            self.header.set_margin_start(2)
-            self.header.set_margin_end(2)
-            self.header.set_margin_top(2)
-            self.header.set_margin_bottom(2)
-            self.header.set_spacing(2)
-        else:
-            self.header.set_margin_start(10)
-            self.header.set_margin_end(6)
-            self.header.set_margin_top(6)
-            self.header.set_margin_bottom(6)
-            self.header.set_spacing(6)
-
         # Adjust content margins
-        if self.config.layout in ("vertical", "vertical-mini"):
-            self.content.set_margin_start(4 if not is_narrow else 2)
-            self.content.set_margin_end(4 if not is_narrow else 2)
-            self.content.set_margin_bottom(4 if not is_narrow else 2)
+        if self.config.layout == "vertical":
+            self.content.set_margin_start(4)
+            self.content.set_margin_end(4)
+            self.content.set_margin_bottom(4)
         else:
             self.content.set_margin_start(8)
             self.content.set_margin_end(8)
