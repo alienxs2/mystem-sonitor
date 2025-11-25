@@ -1141,19 +1141,20 @@ class MystemSonitor(Gtk.Window):
             self.move(x + int(e.x - self._drag_x), y + int(e.y - self._drag_y))
 
     def _create_header(self):
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        header.set_margin_start(10)
-        header.set_margin_end(6)
-        header.set_margin_top(6)
-        header.set_margin_bottom(6)
-        header.get_style_context().add_class('custom-header')
+        self.header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.header.set_margin_start(10)
+        self.header.set_margin_end(6)
+        self.header.set_margin_top(6)
+        self.header.set_margin_bottom(6)
+        self.header.get_style_context().add_class('custom-header')
 
         # Title
         self.title_label = Gtk.Label(label=f"⚡ {APP_NAME}")
         self.title_label.get_style_context().add_class('header-title')
-        header.pack_start(self.title_label, False, False, 0)
+        self.header.pack_start(self.title_label, False, False, 0)
 
-        header.pack_start(Gtk.Box(), True, True, 0)
+        self.header_spacer = Gtk.Box()
+        self.header.pack_start(self.header_spacer, True, True, 0)
 
         # Layout button
         self.layout_btn = Gtk.Button(label="▦")
@@ -1161,7 +1162,7 @@ class MystemSonitor(Gtk.Window):
         self.layout_btn.get_style_context().add_class('header-btn')
         self.layout_btn.set_tooltip_text("Switch layout")
         self.layout_btn.connect('clicked', self._on_layout_click)
-        header.pack_end(self.layout_btn, False, False, 0)
+        self.header.pack_end(self.layout_btn, False, False, 0)
 
         # Theme button
         self.theme_btn = Gtk.Button(label="◐")
@@ -1169,13 +1170,13 @@ class MystemSonitor(Gtk.Window):
         self.theme_btn.get_style_context().add_class('header-btn')
         self.theme_btn.set_tooltip_text("Switch theme")
         self.theme_btn.connect('clicked', self._on_theme_click)
-        header.pack_end(self.theme_btn, False, False, 0)
+        self.header.pack_end(self.theme_btn, False, False, 0)
 
         # Settings button
-        settings_btn = Gtk.MenuButton()
-        settings_btn.set_relief(Gtk.ReliefStyle.NONE)
-        settings_btn.add(Gtk.Label(label="⚙"))
-        settings_btn.get_style_context().add_class('header-btn')
+        self.settings_btn = Gtk.MenuButton()
+        self.settings_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self.settings_btn.add(Gtk.Label(label="⚙"))
+        self.settings_btn.get_style_context().add_class('header-btn')
 
         menu = Gtk.Menu()
 
@@ -1191,24 +1192,24 @@ class MystemSonitor(Gtk.Window):
         menu.append(about_item)
 
         menu.show_all()
-        settings_btn.set_popup(menu)
-        header.pack_end(settings_btn, False, False, 0)
+        self.settings_btn.set_popup(menu)
+        self.header.pack_end(self.settings_btn, False, False, 0)
 
         # Minimize
-        min_btn = Gtk.Button(label="─")
-        min_btn.set_relief(Gtk.ReliefStyle.NONE)
-        min_btn.get_style_context().add_class('header-btn')
-        min_btn.connect('clicked', lambda b: self.iconify())
-        header.pack_end(min_btn, False, False, 0)
+        self.min_btn = Gtk.Button(label="─")
+        self.min_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self.min_btn.get_style_context().add_class('header-btn')
+        self.min_btn.connect('clicked', lambda b: self.iconify())
+        self.header.pack_end(self.min_btn, False, False, 0)
 
         # Close
-        close_btn = Gtk.Button(label="✕")
-        close_btn.set_relief(Gtk.ReliefStyle.NONE)
-        close_btn.get_style_context().add_class('header-btn-close')
-        close_btn.connect('clicked', lambda b: Gtk.main_quit())
-        header.pack_end(close_btn, False, False, 0)
+        self.close_btn = Gtk.Button(label="✕")
+        self.close_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self.close_btn.get_style_context().add_class('header-btn-close')
+        self.close_btn.connect('clicked', lambda b: Gtk.main_quit())
+        self.header.pack_end(self.close_btn, False, False, 0)
 
-        self.main_box.pack_start(header, False, False, 0)
+        self.main_box.pack_start(self.header, False, False, 0)
 
     def _on_layout_click(self, btn):
         self.config.cycle_layout()
@@ -1475,7 +1476,7 @@ class MystemSonitor(Gtk.Window):
             "compact": (440, 175),
             "wide": (660, 95),
             "vertical": (140, 520),  # Full-featured vertical stack
-            "vertical-mini": (58, 280),  # Maximally narrow width
+            "vertical-mini": (58, 520),  # Maximally narrow width, same height
             "mini": (300, 85),
             "dashboard": (520, 180),
             "panel": (420, 85),
@@ -1484,11 +1485,35 @@ class MystemSonitor(Gtk.Window):
         self.set_default_size(w, h)
         self.resize(w, h)
 
-        # Adjust margins for vertical layouts
+        # Adjust header and margins for vertical-mini
+        is_narrow = (self.config.layout == "vertical-mini")
+
+        # Hide/show header elements for narrow layout
+        self.title_label.set_visible(not is_narrow)
+        self.header_spacer.set_visible(not is_narrow)
+        self.theme_btn.set_visible(not is_narrow)
+        self.settings_btn.set_visible(not is_narrow)
+        self.min_btn.set_visible(not is_narrow)
+
+        # Adjust header margins for narrow layout
+        if is_narrow:
+            self.header.set_margin_start(2)
+            self.header.set_margin_end(2)
+            self.header.set_margin_top(2)
+            self.header.set_margin_bottom(2)
+            self.header.set_spacing(2)
+        else:
+            self.header.set_margin_start(10)
+            self.header.set_margin_end(6)
+            self.header.set_margin_top(6)
+            self.header.set_margin_bottom(6)
+            self.header.set_spacing(6)
+
+        # Adjust content margins
         if self.config.layout in ("vertical", "vertical-mini"):
-            self.content.set_margin_start(4)
-            self.content.set_margin_end(4)
-            self.content.set_margin_bottom(4)
+            self.content.set_margin_start(4 if not is_narrow else 2)
+            self.content.set_margin_end(4 if not is_narrow else 2)
+            self.content.set_margin_bottom(4 if not is_narrow else 2)
         else:
             self.content.set_margin_start(8)
             self.content.set_margin_end(8)
