@@ -734,47 +734,46 @@ class IOBarsWidget(Gtk.DrawingArea):
 
         bar_x = 10
         bar_w = w - 20
-        bar_h = 10
+        bar_h = 8
+        bar_r = 4  # Radius for rounded ends
 
-        # Read bar background
+        # Read bar
         read_pct = min(1.0, self.read_val / self.max_val) if self.max_val > 0 else 0
+
+        # Background track
         cr.set_source_rgb(0.15, 0.15, 0.18)
-        self._rounded_rect(cr, bar_x, 22, bar_w, bar_h, 3)
+        cr.rectangle(bar_x, 24, bar_w, bar_h)
         cr.fill()
 
-        # Read bar fill - clip to background shape
-        if read_pct > 0.01:
-            fill_w = max(4, bar_w * read_pct)  # Min 4px
-            cr.save()
-            self._rounded_rect(cr, bar_x, 22, bar_w, bar_h, 3)
-            cr.clip()
+        # Fill bar (simple rectangle, no rounding issues)
+        if read_pct > 0.02:
+            fill_w = bar_w * read_pct
             cr.set_source_rgb(*self.theme["good"])
-            cr.rectangle(bar_x, 22, fill_w, bar_h)
+            cr.rectangle(bar_x, 24, fill_w, bar_h)
             cr.fill()
-            cr.restore()
 
+        # Read text
         cr.set_font_size(9)
         cr.set_source_rgb(*self.theme["good"])
         cr.move_to(bar_x, 44)
         cr.show_text(f"↓ {self._fmt_short(self.read_val)}")
 
-        # Write bar background
+        # Write bar
         write_pct = min(1.0, self.write_val / self.max_val) if self.max_val > 0 else 0
+
+        # Background track
         cr.set_source_rgb(0.15, 0.15, 0.18)
-        self._rounded_rect(cr, bar_x, 48, bar_w, bar_h, 3)
+        cr.rectangle(bar_x, 50, bar_w, bar_h)
         cr.fill()
 
-        # Write bar fill - clip to background shape
-        if write_pct > 0.01:
-            fill_w = max(4, bar_w * write_pct)  # Min 4px
-            cr.save()
-            self._rounded_rect(cr, bar_x, 48, bar_w, bar_h, 3)
-            cr.clip()
+        # Fill bar
+        if write_pct > 0.02:
+            fill_w = bar_w * write_pct
             cr.set_source_rgb(*self.theme["warn"])
-            cr.rectangle(bar_x, 48, fill_w, bar_h)
+            cr.rectangle(bar_x, 50, fill_w, bar_h)
             cr.fill()
-            cr.restore()
 
+        # Write text
         cr.set_source_rgb(*self.theme["warn"])
         cr.move_to(bar_x, h - 5)
         cr.show_text(f"↑ {self._fmt_short(self.write_val)}")
