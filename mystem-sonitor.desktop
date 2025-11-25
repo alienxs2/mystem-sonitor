@@ -2,9 +2,10 @@
 Type=Application
 Name=Mystem Sonitor
 Comment=Advanced System Resource Monitor
-Exec=env DISPLAY=:1 /usr/bin/python3 /home/dev/mystem_sonitor/mystem_sonitor.py
+Exec=python3 /home/dev/mystem_sonitor/mystem_sonitor.py
 Icon=/home/dev/mystem_sonitor/icon.png
 Terminal=false
 Categories=System;Monitor;Utility;
-StartupNotify=false
-Keywords=system;monitor;cpu;ram;gpu;
+StartupNotify=true
+StartupWMClass=mystem-sonitor
+Keywords=system;monitor;cpu;ram;gpu;temperature;

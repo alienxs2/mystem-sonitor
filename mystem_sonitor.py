@@ -3,13 +3,12 @@
 Mystem Sonitor - Advanced System Resource Monitor
 
 Features:
-- Multiple visualization modes (bar, gauge, arc, ring, minimal)
-- Custom window decoration (no standard title bar)
-- Settings menu with autostart toggle
+- Multiple visualization modes (click to cycle)
+- Color themes
+- Custom window decoration
 - Layout switching
-- Cairo-based custom widgets
 
-Author: alienxs2
+Author: Goncharenko Anton (alienxs2)
 License: MIT
 """
 
@@ -20,7 +19,7 @@ from typing import Optional, Dict, Any
 
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib, Gdk, Gio
+from gi.repository import Gtk, GLib, Gdk
 import cairo
 
 import psutil
@@ -31,7 +30,6 @@ import psutil
 # ============================================================================
 
 APP_NAME = "Mystem Sonitor"
-APP_ID = "com.alienxs2.mystemsonitor"
 UPDATE_INTERVAL_MS = 1000
 CONFIG_DIR = os.path.expanduser("~/.config/mystem-sonitor")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.ini")
@@ -40,136 +38,282 @@ AUTOSTART_FILE = os.path.join(AUTOSTART_DIR, "mystem-sonitor.desktop")
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Visualization modes
-VIS_MODES = ["bar", "gauge", "arc", "ring", "minimal"]
-LAYOUTS = ["compact", "wide", "vertical", "mini"]
+VIS_MODES = ["bar", "gauge", "arc", "ring", "text", "wave", "terminal"]
+# Layouts
+LAYOUTS = ["compact", "wide", "vertical", "mini", "dashboard", "panel"]
+
+# Color themes
+THEMES = {
+    "default": {
+        "name": "Default",
+        "bg": "#1a1a1e",
+        "header": "#252528",
+        "tile_bg": "#222226",
+        "accent": "#4CAF50",
+        "text": "#ffffff",
+        "text_dim": "#888888",
+        "good": (0.30, 0.85, 0.40),
+        "warn": (1.00, 0.75, 0.20),
+        "danger": (1.00, 0.35, 0.30),
+    },
+    "ocean": {
+        "name": "Ocean",
+        "bg": "#0d1b2a",
+        "header": "#1b263b",
+        "tile_bg": "#152238",
+        "accent": "#00b4d8",
+        "text": "#e0f4ff",
+        "text_dim": "#6b8fa3",
+        "good": (0.00, 0.75, 0.90),
+        "warn": (0.30, 0.90, 0.70),
+        "danger": (0.95, 0.45, 0.55),
+    },
+    "sunset": {
+        "name": "Sunset",
+        "bg": "#1a1423",
+        "header": "#2d1f3d",
+        "tile_bg": "#261a35",
+        "accent": "#ff6b6b",
+        "text": "#ffe8e8",
+        "text_dim": "#9a7a8a",
+        "good": (1.00, 0.55, 0.45),
+        "warn": (1.00, 0.85, 0.35),
+        "danger": (1.00, 0.30, 0.40),
+    },
+    "matrix": {
+        "name": "Matrix",
+        "bg": "#0a0f0a",
+        "header": "#0f1a0f",
+        "tile_bg": "#0d150d",
+        "accent": "#00ff41",
+        "text": "#00ff41",
+        "text_dim": "#306030",
+        "good": (0.00, 1.00, 0.25),
+        "warn": (0.50, 1.00, 0.00),
+        "danger": (1.00, 0.25, 0.25),
+    },
+    "nord": {
+        "name": "Nord",
+        "bg": "#2e3440",
+        "header": "#3b4252",
+        "tile_bg": "#353c4a",
+        "accent": "#88c0d0",
+        "text": "#eceff4",
+        "text_dim": "#7b88a1",
+        "good": (0.53, 0.75, 0.82),
+        "warn": (0.92, 0.80, 0.55),
+        "danger": (0.75, 0.38, 0.42),
+    },
+    "purple": {
+        "name": "Purple",
+        "bg": "#13111c",
+        "header": "#1e1a2e",
+        "tile_bg": "#1a1628",
+        "accent": "#bd93f9",
+        "text": "#f8f0ff",
+        "text_dim": "#7a6a9a",
+        "good": (0.74, 0.58, 0.98),
+        "warn": (1.00, 0.72, 0.42),
+        "danger": (1.00, 0.33, 0.44),
+    },
+}
+THEME_ORDER = list(THEMES.keys())
 
 
-def get_health_color(percent: float) -> tuple:
-    """Get RGB color based on percentage (0-100)."""
+def get_health_color(percent: float, theme: dict) -> tuple:
+    """Get RGB color based on percentage and theme."""
+    good = theme["good"]
+    warn = theme["warn"]
+    danger = theme["danger"]
+
     if percent <= 50:
-        t = percent / 50
-        return (t * 0.8, 0.8, 0.2 * (1 - t))
-    elif percent <= 70:
-        t = (percent - 50) / 20
-        return (0.8 + t * 0.2, 0.8 - t * 0.1, 0)
-    elif percent <= 85:
-        t = (percent - 70) / 15
-        return (1.0, 0.7 - t * 0.35, 0)
+        return good
+    elif percent <= 75:
+        t = (percent - 50) / 25
+        return (
+            good[0] + t * (warn[0] - good[0]),
+            good[1] + t * (warn[1] - good[1]),
+            good[2] + t * (warn[2] - good[2])
+        )
     else:
-        t = min(1.0, (percent - 85) / 15)
-        return (1.0, 0.35 * (1 - t), 0)
+        t = min(1.0, (percent - 75) / 25)
+        return (
+            warn[0] + t * (danger[0] - warn[0]),
+            warn[1] + t * (danger[1] - warn[1]),
+            warn[2] + t * (danger[2] - warn[2])
+        )
 
 
-def rgb_to_hex(rgb: tuple) -> str:
-    return f"#{int(rgb[0]*255):02X}{int(rgb[1]*255):02X}{int(rgb[2]*255):02X}"
+def hex_to_rgb(hex_color: str) -> tuple:
+    """Convert hex color to RGB tuple (0-1 range)."""
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 
 
 # ============================================================================
-# Cairo Visualization Widgets
+# Visualization Widgets
 # ============================================================================
 
-class GaugeWidget(Gtk.DrawingArea):
-    """Speedometer-style gauge widget."""
+class BaseWidget(Gtk.DrawingArea):
+    """Base class for visualization widgets."""
 
     def __init__(self, label: str = "", unit: str = "%"):
         super().__init__()
         self.label = label
         self.unit = unit
         self.value = 0
-        self.details = ""
-        self.set_size_request(100, 80)
+        self.theme = THEMES["default"]
+        self.set_size_request(100, 70)
         self.connect('draw', self.on_draw)
 
     def set_value(self, value: float, details: str = ""):
         self.value = min(100, max(0, value))
-        self.details = details
+        self.queue_draw()
+
+    def set_theme(self, theme: dict):
+        self.theme = theme
         self.queue_draw()
 
     def on_draw(self, widget, cr):
-        width = widget.get_allocated_width()
-        height = widget.get_allocated_height()
+        pass
 
-        cx, cy = width / 2, height * 0.6
-        radius = min(width, height) * 0.4
+    def _draw_tile_bg(self, cr, w, h, radius=6):
+        """Draw rounded tile background."""
+        bg = hex_to_rgb(self.theme["tile_bg"])
+        cr.set_source_rgb(*bg)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, radius)
+        cr.fill()
+
+    def _rounded_rect(self, cr, x, y, w, h, r):
+        """Draw rounded rectangle path."""
+        cr.new_path()
+        cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+        cr.arc(x + w - r, y + r, r, 1.5 * math.pi, 2 * math.pi)
+        cr.arc(x + w - r, y + h - r, r, 0, 0.5 * math.pi)
+        cr.arc(x + r, y + h - r, r, 0.5 * math.pi, math.pi)
+        cr.close_path()
+
+
+class BarWidget(BaseWidget):
+    """Clean horizontal progress bar."""
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        self._draw_tile_bg(cr, w, h)
+
+        color = get_health_color(self.value, self.theme)
+        text_color = hex_to_rgb(self.theme["text"])
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label (top-left)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(13)
+        cr.set_source_rgb(*dim_color)
+        cr.move_to(10, 20)
+        cr.show_text(self.label)
+
+        # Value (top-right)
+        cr.set_source_rgb(*color)
+        cr.set_font_size(16)
+        text = f"{self.value:.0f}{self.unit}"
+        ext = cr.text_extents(text)
+        cr.move_to(w - ext.width - 10, 22)
+        cr.show_text(text)
+
+        # Progress bar background
+        bar_y = h - 22
+        bar_h = 10
+        cr.set_source_rgb(0.15, 0.15, 0.18)
+        self._rounded_rect(cr, 10, bar_y, w - 20, bar_h, 5)
+        cr.fill()
+
+        # Progress bar fill
+        bar_w = max(0, (w - 20) * (self.value / 100))
+        if bar_w > 0:
+            cr.set_source_rgb(*color)
+            self._rounded_rect(cr, 10, bar_y, bar_w, bar_h, 5)
+            cr.fill()
+
+
+class GaugeWidget(BaseWidget):
+    """Speedometer-style gauge - clean and readable."""
+
+    def __init__(self, label: str = "", unit: str = "%"):
+        super().__init__(label, unit)
+        self.set_size_request(110, 85)
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        self._draw_tile_bg(cr, w, h)
+
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        cx, cy = w / 2, h * 0.52
+        radius = min(w, h) * 0.36
 
         # Background arc
         cr.set_line_width(8)
-        cr.set_source_rgb(0.2, 0.2, 0.2)
-        cr.arc(cx, cy, radius, math.pi * 0.8, math.pi * 2.2)
+        cr.set_source_rgb(0.18, 0.18, 0.20)
+        cr.arc(cx, cy, radius, math.pi * 0.75, math.pi * 2.25)
         cr.stroke()
 
         # Value arc
-        color = get_health_color(self.value)
         cr.set_source_rgb(*color)
-        end_angle = math.pi * 0.8 + (self.value / 100) * math.pi * 1.4
-        cr.arc(cx, cy, radius, math.pi * 0.8, end_angle)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        end_angle = math.pi * 0.75 + (self.value / 100) * math.pi * 1.5
+        cr.arc(cx, cy, radius, math.pi * 0.75, end_angle)
         cr.stroke()
 
-        # Needle
-        needle_angle = math.pi * 0.8 + (self.value / 100) * math.pi * 1.4
-        needle_len = radius * 0.7
-        nx = cx + math.cos(needle_angle) * needle_len
-        ny = cy + math.sin(needle_angle) * needle_len
-        cr.set_source_rgb(1, 1, 1)
-        cr.set_line_width(2)
-        cr.move_to(cx, cy)
-        cr.line_to(nx, ny)
-        cr.stroke()
-
-        # Center dot
-        cr.arc(cx, cy, 4, 0, 2 * math.pi)
-        cr.fill()
-
-        # Value text
+        # Value text (center)
         cr.set_source_rgb(*color)
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(14)
-        text = f"{self.value:.0f}{self.unit}"
-        extents = cr.text_extents(text)
-        cr.move_to(cx - extents.width / 2, cy + radius * 0.3)
+        cr.set_font_size(20)
+        text = f"{self.value:.0f}"
+        ext = cr.text_extents(text)
+        cr.move_to(cx - ext.width / 2, cy + 8)
         cr.show_text(text)
 
-        # Label
-        cr.set_source_rgb(0.7, 0.7, 0.7)
-        cr.set_font_size(10)
-        extents = cr.text_extents(self.label)
-        cr.move_to(cx - extents.width / 2, height - 5)
+        # Label (bottom)
+        cr.set_source_rgb(*dim_color)
+        cr.set_font_size(11)
+        ext = cr.text_extents(self.label)
+        cr.move_to(cx - ext.width / 2, h - 6)
         cr.show_text(self.label)
 
 
-class ArcWidget(Gtk.DrawingArea):
-    """Arc progress widget."""
+class ArcWidget(BaseWidget):
+    """Half-circle arc - elegant and simple."""
 
     def __init__(self, label: str = "", unit: str = "%"):
-        super().__init__()
-        self.label = label
-        self.unit = unit
-        self.value = 0
-        self.details = ""
-        self.set_size_request(90, 70)
-        self.connect('draw', self.on_draw)
-
-    def set_value(self, value: float, details: str = ""):
-        self.value = min(100, max(0, value))
-        self.details = details
-        self.queue_draw()
+        super().__init__(label, unit)
+        self.set_size_request(100, 70)
 
     def on_draw(self, widget, cr):
-        width = widget.get_allocated_width()
-        height = widget.get_allocated_height()
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
 
-        cx, cy = width / 2, height * 0.45
-        radius = min(width, height) * 0.35
+        self._draw_tile_bg(cr, w, h)
 
-        # Background arc (180 degrees)
-        cr.set_line_width(6)
-        cr.set_source_rgb(0.2, 0.2, 0.2)
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        cx, cy = w / 2, h * 0.58
+        radius = min(w, h) * 0.38
+
+        # Background arc
+        cr.set_line_width(7)
+        cr.set_source_rgb(0.18, 0.18, 0.20)
         cr.arc(cx, cy, radius, math.pi, 2 * math.pi)
         cr.stroke()
 
         # Value arc
-        color = get_health_color(self.value)
         cr.set_source_rgb(*color)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
         end_angle = math.pi + (self.value / 100) * math.pi
         cr.arc(cx, cy, radius, math.pi, end_angle)
         cr.stroke()
@@ -177,53 +321,48 @@ class ArcWidget(Gtk.DrawingArea):
         # Value text
         cr.set_source_rgb(*color)
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(16)
-        text = f"{self.value:.0f}{self.unit}"
-        extents = cr.text_extents(text)
-        cr.move_to(cx - extents.width / 2, cy + 8)
+        cr.set_font_size(18)
+        text = f"{self.value:.0f}"
+        ext = cr.text_extents(text)
+        cr.move_to(cx - ext.width / 2, cy + 5)
         cr.show_text(text)
 
         # Label
-        cr.set_source_rgb(0.6, 0.6, 0.6)
-        cr.set_font_size(9)
-        extents = cr.text_extents(self.label)
-        cr.move_to(cx - extents.width / 2, height - 3)
+        cr.set_source_rgb(*dim_color)
+        cr.set_font_size(10)
+        ext = cr.text_extents(self.label)
+        cr.move_to(cx - ext.width / 2, h - 5)
         cr.show_text(self.label)
 
 
-class RingWidget(Gtk.DrawingArea):
-    """Circular ring progress widget."""
+class RingWidget(BaseWidget):
+    """Full circular ring - modern style."""
 
     def __init__(self, label: str = "", unit: str = "%"):
-        super().__init__()
-        self.label = label
-        self.unit = unit
-        self.value = 0
-        self.details = ""
+        super().__init__(label, unit)
         self.set_size_request(80, 80)
-        self.connect('draw', self.on_draw)
-
-    def set_value(self, value: float, details: str = ""):
-        self.value = min(100, max(0, value))
-        self.details = details
-        self.queue_draw()
 
     def on_draw(self, widget, cr):
-        width = widget.get_allocated_width()
-        height = widget.get_allocated_height()
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
 
-        cx, cy = width / 2, height / 2
-        radius = min(width, height) * 0.35
+        self._draw_tile_bg(cr, w, h)
+
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        cx, cy = w / 2, h / 2
+        radius = min(w, h) * 0.32
 
         # Background ring
-        cr.set_line_width(5)
-        cr.set_source_rgb(0.2, 0.2, 0.2)
+        cr.set_line_width(6)
+        cr.set_source_rgb(0.18, 0.18, 0.20)
         cr.arc(cx, cy, radius, 0, 2 * math.pi)
         cr.stroke()
 
         # Value ring
-        color = get_health_color(self.value)
         cr.set_source_rgb(*color)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
         start = -math.pi / 2
         end = start + (self.value / 100) * 2 * math.pi
         cr.arc(cx, cy, radius, start, end)
@@ -232,224 +371,484 @@ class RingWidget(Gtk.DrawingArea):
         # Value text
         cr.set_source_rgb(*color)
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(12)
+        cr.set_font_size(16)
         text = f"{self.value:.0f}"
-        extents = cr.text_extents(text)
-        cr.move_to(cx - extents.width / 2, cy + 4)
+        ext = cr.text_extents(text)
+        cr.move_to(cx - ext.width / 2, cy + 6)
         cr.show_text(text)
 
         # Label below
-        cr.set_source_rgb(0.6, 0.6, 0.6)
-        cr.set_font_size(8)
-        extents = cr.text_extents(self.label)
-        cr.move_to(cx - extents.width / 2, cy + radius + 12)
+        cr.set_source_rgb(*dim_color)
+        cr.set_font_size(9)
+        ext = cr.text_extents(self.label)
+        cr.move_to(cx - ext.width / 2, cy + radius + 16)
         cr.show_text(self.label)
 
 
-class BarWidget(Gtk.Box):
-    """Progress bar widget with label."""
+class TextWidget(BaseWidget):
+    """Large text display - bold and clear."""
 
     def __init__(self, label: str = "", unit: str = "%"):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        super().__init__(label, unit)
+        self.set_size_request(90, 65)
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        self._draw_tile_bg(cr, w, h)
+
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Large value
+        cr.set_source_rgb(*color)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(28)
+        text = f"{self.value:.0f}"
+        ext = cr.text_extents(text)
+        x = w / 2 - ext.width / 2 - 5
+        cr.move_to(x, h * 0.55)
+        cr.show_text(text)
+
+        # Unit
+        cr.set_font_size(14)
+        cr.move_to(x + ext.width + 3, h * 0.55)
+        cr.show_text(self.unit)
+
+        # Label
+        cr.set_source_rgb(*dim_color)
+        cr.set_font_size(11)
+        ext = cr.text_extents(self.label)
+        cr.move_to(w / 2 - ext.width / 2, h - 8)
+        cr.show_text(self.label)
+
+
+class WaveWidget(BaseWidget):
+    """Wave/tank indicator - animated feel."""
+
+    def __init__(self, label: str = "", unit: str = "%"):
+        super().__init__(label, unit)
+        self.set_size_request(90, 70)
+        self._phase = 0
+
+    def set_value(self, value: float, details: str = ""):
+        super().set_value(value, details)
+        self._phase += 0.15
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        self._draw_tile_bg(cr, w, h)
+
+        color = get_health_color(self.value, self.theme)
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Tank container
+        tank_x, tank_y = 12, 18
+        tank_w, tank_h = w - 24, h - 40
+
+        cr.set_source_rgb(0.12, 0.12, 0.14)
+        self._rounded_rect(cr, tank_x, tank_y, tank_w, tank_h, 4)
+        cr.fill()
+
+        # Wave fill
+        fill_h = tank_h * (self.value / 100)
+        base_y = tank_y + tank_h - fill_h
+
+        if fill_h > 2:
+            cr.save()
+            self._rounded_rect(cr, tank_x, tank_y, tank_w, tank_h, 4)
+            cr.clip()
+
+            cr.set_source_rgb(*color)
+            cr.move_to(tank_x, base_y)
+            for x in range(int(tank_x), int(tank_x + tank_w) + 1):
+                wave_y = base_y + math.sin((x - tank_x) * 0.12 + self._phase) * 3
+                cr.line_to(x, wave_y)
+            cr.line_to(tank_x + tank_w, tank_y + tank_h)
+            cr.line_to(tank_x, tank_y + tank_h)
+            cr.close_path()
+            cr.fill()
+            cr.restore()
+
+        # Value on top
+        cr.set_source_rgb(*color)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(12)
+        text = f"{self.value:.0f}{self.unit}"
+        ext = cr.text_extents(text)
+        cr.move_to(w / 2 - ext.width / 2, 13)
+        cr.show_text(text)
+
+        # Label
+        cr.set_source_rgb(*dim_color)
+        cr.set_font_size(10)
+        ext = cr.text_extents(self.label)
+        cr.move_to(w / 2 - ext.width / 2, h - 5)
+        cr.show_text(self.label)
+
+
+class TerminalWidget(BaseWidget):
+    """Terminal-style display - looks like mini console."""
+
+    def __init__(self, label: str = "", unit: str = "%"):
+        super().__init__(label, unit)
+        self.set_size_request(120, 80)
+        self._cursor = True
+        self._tick = 0
+
+    def set_value(self, value: float, details: str = ""):
+        super().set_value(value, details)
+        self._tick += 1
+        if self._tick % 2 == 0:
+            self._cursor = not self._cursor
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        # Terminal background
+        cr.set_source_rgb(0.05, 0.06, 0.05)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 5)
+        cr.fill()
+
+        # Title bar
+        cr.set_source_rgb(0.12, 0.14, 0.12)
+        self._rounded_rect(cr, 1, 1, w - 2, 14, 5)
+        cr.fill()
+        cr.rectangle(1, 10, w - 2, 5)
+        cr.fill()
+
+        # Window buttons
+        for i, c in enumerate([(0.9, 0.35, 0.35), (0.9, 0.75, 0.25), (0.35, 0.85, 0.35)]):
+            cr.set_source_rgb(*c)
+            cr.arc(10 + i * 11, 8, 3.5, 0, 2 * math.pi)
+            cr.fill()
+
+        color = get_health_color(self.value, self.theme)
+
+        # Terminal text
+        cr.select_font_face("monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(11)
+
+        y = 30
+        lh = 13
+
+        # Prompt line
+        cr.set_source_rgb(0.3, 0.75, 0.35)
+        cr.move_to(8, y)
+        cr.show_text("$")
+        cr.set_source_rgb(0.6, 0.65, 0.6)
+        cr.move_to(18, y)
+        cr.show_text(f"stat {self.label.lower()}")
+
+        # Value line
+        cr.set_source_rgb(*color)
+        cr.set_font_size(13)
+        cr.move_to(8, y + lh)
+        bar_fill = int(self.value / 10)
+        bar = "[" + "#" * bar_fill + "-" * (10 - bar_fill) + "]"
+        cr.show_text(f"{self.value:5.1f}{self.unit} {bar}")
+
+        # Status line
+        cr.set_source_rgb(0.45, 0.5, 0.45)
+        cr.set_font_size(10)
+        status = "OK" if self.value < 60 else ("WARN" if self.value < 80 else "CRIT")
+        cr.move_to(8, y + lh * 2)
+        cr.show_text(f"status: {status}")
+
+        # Blinking cursor
+        if self._cursor:
+            cr.set_source_rgb(0.3, 0.85, 0.35)
+            cr.rectangle(8, y + lh * 2 + 4, 7, 11)
+            cr.fill()
+
+
+IO_MODES = ["bars", "split", "compact", "terminal"]
+
+
+class IOWidget(Gtk.DrawingArea):
+    """I/O display widget for Disk/Network with multiple styles."""
+
+    def __init__(self, label: str = "", mode: str = "bars"):
+        super().__init__()
         self.label_text = label
-        self.unit = unit
-        self._css = Gtk.CssProvider()
+        self.read_val = 0
+        self.write_val = 0
+        self.theme = THEMES["default"]
+        self.mode = mode
+        self.set_size_request(100, 70)
+        self.connect('draw', self.on_draw)
 
-        self.get_style_context().add_class('bar-widget')
-
-        # Label row
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self.label = Gtk.Label(label=label)
-        self.label.set_halign(Gtk.Align.START)
-        self.label.get_style_context().add_class('bar-label')
-        header.pack_start(self.label, True, True, 0)
-
-        self.value_label = Gtk.Label(label="0%")
-        self.value_label.set_halign(Gtk.Align.END)
-        self.value_label.get_style_context().add_class('bar-value')
-        header.pack_end(self.value_label, False, False, 0)
-        self.pack_start(header, False, False, 0)
-
-        # Progress bar
-        self.progress = Gtk.ProgressBar()
-        self.progress.set_fraction(0)
-        self.progress.get_style_context().add_class('health-bar')
-        self.progress.get_style_context().add_provider(self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        self.pack_start(self.progress, False, False, 0)
-
-        # Details
-        self.details_label = Gtk.Label(label="")
-        self.details_label.set_halign(Gtk.Align.START)
-        self.details_label.get_style_context().add_class('bar-details')
-        self.pack_start(self.details_label, False, False, 0)
-
-    def set_value(self, value: float, details: str = ""):
-        color = get_health_color(value)
-        hex_color = rgb_to_hex(color)
-
-        self.value_label.set_markup(f'<span foreground="{hex_color}" weight="bold">{value:.0f}{self.unit}</span>')
-        self.progress.set_fraction(min(value / 100.0, 1.0))
-
-        css = f".health-bar progress {{ background-color: {hex_color}; }}"
-        self._css.load_from_data(css.encode())
-
-        if details:
-            self.details_label.set_text(details)
-
-
-class MinimalWidget(Gtk.Box):
-    """Minimal text-only widget."""
-
-    def __init__(self, label: str = "", unit: str = "%"):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.unit = unit
-
-        self.label = Gtk.Label(label=label)
-        self.label.get_style_context().add_class('mini-label')
-        self.pack_start(self.label, False, False, 0)
-
-        self.value_label = Gtk.Label(label=f"0{unit}")
-        self.value_label.get_style_context().add_class('mini-value')
-        self.pack_start(self.value_label, False, False, 0)
-
-    def set_value(self, value: float, details: str = ""):
-        color = rgb_to_hex(get_health_color(value))
-        self.value_label.set_markup(f'<span foreground="{color}" weight="bold" size="large">{value:.0f}{self.unit}</span>')
-
-
-class IOWidget(Gtk.Box):
-    """I/O display widget."""
-
-    def __init__(self, label: str = ""):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-
-        self.label = Gtk.Label(label=label)
-        self.label.get_style_context().add_class('io-label')
-        self.pack_start(self.label, False, False, 0)
-
-        self.read_label = Gtk.Label(label="↓ 0 B/s")
-        self.read_label.get_style_context().add_class('io-read')
-        self.pack_start(self.read_label, False, False, 0)
-
-        self.write_label = Gtk.Label(label="↑ 0 B/s")
-        self.write_label.get_style_context().add_class('io-write')
-        self.pack_start(self.write_label, False, False, 0)
+    def set_mode(self, mode: str):
+        self.mode = mode
+        self.queue_draw()
 
     def set_values(self, read: float, write: float):
-        self.read_label.set_text(f"↓ {self._fmt(read)}")
-        self.write_label.set_text(f"↑ {self._fmt(write)}")
+        self.read_val = read
+        self.write_val = write
+        self.queue_draw()
+
+    def set_theme(self, theme: dict):
+        self.theme = theme
+        self.queue_draw()
 
     def _fmt(self, v: float) -> str:
+        if v < 1024: return f"{v:.0f}B"
+        if v < 1024**2: return f"{v/1024:.1f}K"
+        if v < 1024**3: return f"{v/1024**2:.1f}M"
+        return f"{v/1024**3:.1f}G"
+
+    def _fmt_long(self, v: float) -> str:
         if v < 1024: return f"{v:.0f} B/s"
-        if v < 1024**2: return f"{v/1024:.0f} KB/s"
+        if v < 1024**2: return f"{v/1024:.1f} KB/s"
         if v < 1024**3: return f"{v/1024**2:.1f} MB/s"
         return f"{v/1024**3:.1f} GB/s"
 
+    def _rounded_rect(self, cr, x, y, w, h, r):
+        cr.new_path()
+        cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+        cr.arc(x + w - r, y + r, r, 1.5 * math.pi, 2 * math.pi)
+        cr.arc(x + w - r, y + h - r, r, 0, 0.5 * math.pi)
+        cr.arc(x + r, y + h - r, r, 0.5 * math.pi, math.pi)
+        cr.close_path()
+
+    def _get_bar_percent(self, val: float) -> float:
+        """Convert value to percent for bar display (log scale)."""
+        if val <= 0:
+            return 0
+        # Use log scale: 0B=0%, 1KB=25%, 1MB=50%, 100MB=75%, 1GB=100%
+        import math
+        log_val = math.log10(max(1, val))
+        return min(100, max(0, log_val / 9 * 100))  # 10^9 = 1GB
+
+    def on_draw(self, widget, cr):
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        # Background
+        bg = hex_to_rgb(self.theme["tile_bg"])
+        cr.set_source_rgb(*bg)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 6)
+        cr.fill()
+
+        if self.mode == "bars":
+            self._draw_bars(cr, w, h)
+        elif self.mode == "split":
+            self._draw_split(cr, w, h)
+        elif self.mode == "compact":
+            self._draw_compact(cr, w, h)
+        elif self.mode == "terminal":
+            self._draw_terminal(cr, w, h)
+        else:
+            self._draw_bars(cr, w, h)
+
+    def _draw_bars(self, cr, w, h):
+        """Dual horizontal bars style."""
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label
+        cr.set_source_rgb(*dim_color)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(12)
+        ext = cr.text_extents(self.label_text)
+        cr.move_to(w / 2 - ext.width / 2, 16)
+        cr.show_text(self.label_text)
+
+        bar_h = 8
+        bar_w = w - 20
+
+        # Download bar
+        y1 = 26
+        cr.set_source_rgb(0.15, 0.15, 0.18)
+        self._rounded_rect(cr, 10, y1, bar_w, bar_h, 4)
+        cr.fill()
+
+        read_pct = self._get_bar_percent(self.read_val)
+        if read_pct > 0:
+            cr.set_source_rgb(*self.theme["good"])
+            self._rounded_rect(cr, 10, y1, max(4, bar_w * read_pct / 100), bar_h, 4)
+            cr.fill()
+
+        # Download label
+        cr.set_source_rgb(*self.theme["good"])
+        cr.set_font_size(10)
+        cr.move_to(10, y1 + bar_h + 12)
+        cr.show_text(f"↓ {self._fmt(self.read_val)}")
+
+        # Upload bar
+        y2 = 48
+        cr.set_source_rgb(0.15, 0.15, 0.18)
+        self._rounded_rect(cr, 10, y2, bar_w, bar_h, 4)
+        cr.fill()
+
+        write_pct = self._get_bar_percent(self.write_val)
+        if write_pct > 0:
+            cr.set_source_rgb(*self.theme["warn"])
+            self._rounded_rect(cr, 10, y2, max(4, bar_w * write_pct / 100), bar_h, 4)
+            cr.fill()
+
+        # Upload label
+        cr.set_source_rgb(*self.theme["warn"])
+        cr.set_font_size(10)
+        text = f"↑ {self._fmt(self.write_val)}"
+        ext = cr.text_extents(text)
+        cr.move_to(w - ext.width - 10, y2 + bar_h + 12)
+        cr.show_text(text)
+
+    def _draw_split(self, cr, w, h):
+        """Split left/right style."""
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label at top
+        cr.set_source_rgb(*dim_color)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(11)
+        ext = cr.text_extents(self.label_text)
+        cr.move_to(w / 2 - ext.width / 2, 14)
+        cr.show_text(self.label_text)
+
+        # Divider line
+        cr.set_source_rgb(0.25, 0.25, 0.28)
+        cr.set_line_width(1)
+        cr.move_to(w / 2, 22)
+        cr.line_to(w / 2, h - 8)
+        cr.stroke()
+
+        # Left side - Download
+        cr.set_source_rgb(*self.theme["good"])
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(9)
+        cr.move_to(8, 30)
+        cr.show_text("↓ IN")
+
+        cr.set_font_size(14)
+        text = self._fmt(self.read_val)
+        cr.move_to(8, 50)
+        cr.show_text(text)
+
+        # Right side - Upload
+        cr.set_source_rgb(*self.theme["warn"])
+        cr.set_font_size(9)
+        cr.move_to(w / 2 + 8, 30)
+        cr.show_text("↑ OUT")
+
+        cr.set_font_size(14)
+        text = self._fmt(self.write_val)
+        cr.move_to(w / 2 + 8, 50)
+        cr.show_text(text)
+
+    def _draw_compact(self, cr, w, h):
+        """Compact single-line style."""
+        dim_color = hex_to_rgb(self.theme["text_dim"])
+
+        # Label
+        cr.set_source_rgb(*dim_color)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(11)
+        ext = cr.text_extents(self.label_text)
+        cr.move_to(w / 2 - ext.width / 2, 18)
+        cr.show_text(self.label_text)
+
+        # Download
+        cr.set_source_rgb(*self.theme["good"])
+        cr.set_font_size(16)
+        text = f"↓{self._fmt(self.read_val)}"
+        cr.move_to(8, h / 2 + 10)
+        cr.show_text(text)
+
+        # Upload
+        cr.set_source_rgb(*self.theme["warn"])
+        text = f"↑{self._fmt(self.write_val)}"
+        ext = cr.text_extents(text)
+        cr.move_to(w - ext.width - 8, h / 2 + 10)
+        cr.show_text(text)
+
+    def _draw_terminal(self, cr, w, h):
+        """Terminal/console style."""
+        # Terminal background
+        cr.set_source_rgb(0.05, 0.06, 0.05)
+        self._rounded_rect(cr, 1, 1, w - 2, h - 2, 5)
+        cr.fill()
+
+        # Title bar
+        cr.set_source_rgb(0.12, 0.14, 0.12)
+        self._rounded_rect(cr, 1, 1, w - 2, 12, 5)
+        cr.fill()
+        cr.rectangle(1, 8, w - 2, 5)
+        cr.fill()
+
+        # Window buttons
+        for i, c in enumerate([(0.9, 0.35, 0.35), (0.9, 0.75, 0.25), (0.35, 0.85, 0.35)]):
+            cr.set_source_rgb(*c)
+            cr.arc(9 + i * 9, 7, 2.5, 0, 2 * math.pi)
+            cr.fill()
+
+        # Terminal text
+        cr.select_font_face("monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(10)
+
+        y = 26
+        lh = 12
+
+        # Label line
+        cr.set_source_rgb(0.3, 0.75, 0.35)
+        cr.move_to(6, y)
+        cr.show_text(f"$ iostat {self.label_text.lower()}")
+
+        # Read line
+        cr.set_source_rgb(*self.theme["good"])
+        cr.move_to(6, y + lh)
+        cr.show_text(f"rx: {self._fmt_long(self.read_val)}")
+
+        # Write line
+        cr.set_source_rgb(*self.theme["warn"])
+        cr.move_to(6, y + lh * 2)
+        cr.show_text(f"tx: {self._fmt_long(self.write_val)}")
+
+
+# ============================================================================
+# Clickable Tile Container
+# ============================================================================
 
 class TileContainer(Gtk.EventBox):
-    """Clickable container for tiles with popup settings menu and drag-drop."""
+    """Clickable container - left click cycles visualization mode."""
 
-    # Class-level drag data
-    _drag_source = None
-    _drag_targets = [Gtk.TargetEntry.new("TILE_DRAG", Gtk.TargetFlags.SAME_APP, 0)]
-
-    def __init__(self, tile_name: str, inner_widget, config, on_mode_change, on_reorder):
+    def __init__(self, tile_name: str, on_mode_cycle):
         super().__init__()
         self.tile_name = tile_name
-        self.inner = inner_widget
-        self.config = config
-        self.on_mode_change = on_mode_change
-        self.on_reorder = on_reorder
+        self.on_mode_cycle = on_mode_cycle
+        self.inner = None
 
-        self.add(inner_widget)
         self.get_style_context().add_class('tile-container')
-
-        # Click for settings (right-click)
         self.connect('button-press-event', self._on_click)
 
-        # Drag and drop setup
-        self.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, self._drag_targets, Gdk.DragAction.MOVE)
-        self.drag_dest_set(Gtk.DestDefaults.ALL, self._drag_targets, Gdk.DragAction.MOVE)
-
-        self.connect('drag-begin', self._on_drag_begin)
-        self.connect('drag-data-get', self._on_drag_data_get)
-        self.connect('drag-data-received', self._on_drag_data_received)
-        self.connect('drag-end', self._on_drag_end)
-
-        # Track last value for forwarding
-        self._last_value = 0
-        self._last_details = ""
-
-    def _on_drag_begin(self, widget, context):
-        TileContainer._drag_source = self.tile_name
-        self.get_style_context().add_class('dragging')
-
-    def _on_drag_end(self, widget, context):
-        self.get_style_context().remove_class('dragging')
-        TileContainer._drag_source = None
-
-    def _on_drag_data_get(self, widget, context, selection, info, time):
-        selection.set_text(self.tile_name, -1)
-
-    def _on_drag_data_received(self, widget, context, x, y, selection, info, time):
-        source_name = TileContainer._drag_source
-        if source_name and source_name != self.tile_name:
-            self.on_reorder(source_name, self.tile_name)
+    def set_widget(self, widget):
+        if self.inner:
+            self.remove(self.inner)
+        self.inner = widget
+        self.add(widget)
+        widget.show()
 
     def _on_click(self, widget, event):
-        if event.button == 3:  # Right click for settings
-            self._show_settings_menu(event)
+        if event.button == 1:
+            self.on_mode_cycle(self.tile_name)
             return True
         return False
 
-    def _show_settings_menu(self, event):
-        menu = Gtk.Menu()
-
-        # Header label
-        header = Gtk.MenuItem(label=f"📊 {self.tile_name.upper()}")
-        header.set_sensitive(False)
-        menu.append(header)
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Visualization mode options (radio group)
-        current_mode = self.config.get_tile_mode(self.tile_name)
-        group = []
-
-        for mode in VIS_MODES:
-            item = Gtk.RadioMenuItem.new_with_label(group, f"  {mode.capitalize()}")
-            group = item.get_group()
-            item.set_active(mode == current_mode)
-            item.connect('toggled', self._on_mode_select, mode)
-            menu.append(item)
-
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Reset to global
-        reset_item = Gtk.MenuItem(label="↺ Use global default")
-        reset_item.connect('activate', self._on_reset_to_global)
-        menu.append(reset_item)
-
-        menu.show_all()
-        menu.popup_at_pointer(event)
-
-    def _on_mode_select(self, item, mode):
-        if item.get_active() and self.config.get_tile_mode(self.tile_name) != mode:
-            self.config.set_tile_mode(self.tile_name, mode)
-            self.on_mode_change(self.tile_name)
-
-    def _on_reset_to_global(self, item):
-        self.config.tile_modes.pop(self.tile_name, None)
-        self.config.save()
-        self.on_mode_change(self.tile_name)
-
     def set_value(self, value: float, details: str = ""):
-        self._last_value = value
-        self._last_details = details
-        self.inner.set_value(value, details)
+        if self.inner and hasattr(self.inner, 'set_value'):
+            self.inner.set_value(value, details)
 
     def set_values(self, read: float, write: float):
-        """For IOWidget compatibility."""
-        self.inner.set_values(read, write)
+        if self.inner and hasattr(self.inner, 'set_values'):
+            self.inner.set_values(read, write)
+
+    def set_theme(self, theme: dict):
+        if self.inner and hasattr(self.inner, 'set_theme'):
+            self.inner.set_theme(theme)
 
 
 # ============================================================================
@@ -473,7 +872,8 @@ class GPUMonitor:
                         "mem_total": float(p[2]), "temp": float(p[3]),
                         "name": p[4].replace("NVIDIA ", "").replace("GeForce ", "")
                     }
-        except: pass
+        except:
+            pass
         return None
 
 
@@ -482,23 +882,15 @@ class GPUMonitor:
 # ============================================================================
 
 class ConfigManager:
-    # Default tile orders for each layout
-    DEFAULT_ORDERS = {
-        "compact": ["cpu", "ram", "swap", "gpu", "vram", "disk", "net", "temp"],
-        "wide": ["cpu", "ram", "gpu", "temp"],
-        "vertical": ["cpu", "ram", "swap", "gpu", "vram", "temp", "disk", "net"],
-        "mini": ["cpu", "ram", "gpu"],
-    }
-
     def __init__(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         self.layout = "compact"
-        self.vis_mode = "bar"  # Default/global mode
+        self.vis_mode = "bar"
+        self.io_mode = "bars"
+        self.theme = "default"
         self.autostart = False
-        # Individual tile visualization modes
-        self.tile_modes = {}  # e.g. {"cpu": "gauge", "ram": "ring"}
-        # Tile order per layout
-        self.tile_orders = {}  # e.g. {"compact": ["ram", "cpu", ...]}
+        self.tile_modes = {}
+        self.io_modes = {}
         self.load()
 
     def load(self):
@@ -508,63 +900,71 @@ class ConfigManager:
                     for line in f:
                         if '=' in line:
                             k, v = line.strip().split('=', 1)
-                            if k == 'layout' and v in LAYOUTS: self.layout = v
-                            elif k == 'vis_mode' and v in VIS_MODES: self.vis_mode = v
-                            elif k == 'autostart': self.autostart = v == 'true'
+                            if k == 'layout' and v in LAYOUTS:
+                                self.layout = v
+                            elif k == 'vis_mode' and v in VIS_MODES:
+                                self.vis_mode = v
+                            elif k == 'io_mode' and v in IO_MODES:
+                                self.io_mode = v
+                            elif k == 'theme' and v in THEMES:
+                                self.theme = v
+                            elif k == 'autostart':
+                                self.autostart = v == 'true'
                             elif k.startswith('tile_') and v in VIS_MODES:
-                                tile_name = k[5:]  # Remove 'tile_' prefix
-                                self.tile_modes[tile_name] = v
-                            elif k.startswith('order_'):
-                                layout_name = k[6:]  # Remove 'order_' prefix
-                                self.tile_orders[layout_name] = v.split(',')
-        except: pass
+                                self.tile_modes[k[5:]] = v
+                            elif k.startswith('io_') and v in IO_MODES:
+                                self.io_modes[k[3:]] = v
+        except:
+            pass
 
     def save(self):
         try:
             with open(CONFIG_FILE, 'w') as f:
                 f.write(f"layout={self.layout}\n")
                 f.write(f"vis_mode={self.vis_mode}\n")
+                f.write(f"io_mode={self.io_mode}\n")
+                f.write(f"theme={self.theme}\n")
                 f.write(f"autostart={'true' if self.autostart else 'false'}\n")
-                for tile_name, mode in self.tile_modes.items():
-                    f.write(f"tile_{tile_name}={mode}\n")
-                for layout_name, order in self.tile_orders.items():
-                    f.write(f"order_{layout_name}={','.join(order)}\n")
-        except: pass
+                for name, mode in self.tile_modes.items():
+                    f.write(f"tile_{name}={mode}\n")
+                for name, mode in self.io_modes.items():
+                    f.write(f"io_{name}={mode}\n")
+        except:
+            pass
 
-    def get_tile_mode(self, tile_name: str) -> str:
-        """Get visualization mode for specific tile, or global default."""
-        return self.tile_modes.get(tile_name, self.vis_mode)
+    def get_tile_mode(self, name: str) -> str:
+        return self.tile_modes.get(name, self.vis_mode)
 
-    def set_tile_mode(self, tile_name: str, mode: str):
-        """Set visualization mode for specific tile."""
-        if mode == self.vis_mode:
-            # If same as global, remove individual setting
-            self.tile_modes.pop(tile_name, None)
-        else:
-            self.tile_modes[tile_name] = mode
+    def get_io_mode(self, name: str) -> str:
+        return self.io_modes.get(name, self.io_mode)
+
+    def cycle_io_mode(self, name: str):
+        current = self.get_io_mode(name)
+        idx = IO_MODES.index(current) if current in IO_MODES else 0
+        new_mode = IO_MODES[(idx + 1) % len(IO_MODES)]
+        self.io_modes[name] = new_mode
         self.save()
+        return new_mode
 
-    def get_tile_order(self, layout: str = None) -> list:
-        """Get tile order for current or specified layout."""
-        layout = layout or self.layout
-        if layout in self.tile_orders:
-            return self.tile_orders[layout]
-        return self.DEFAULT_ORDERS.get(layout, self.DEFAULT_ORDERS["compact"])
-
-    def set_tile_order(self, order: list, layout: str = None):
-        """Set tile order for current or specified layout."""
-        layout = layout or self.layout
-        self.tile_orders[layout] = order
+    def cycle_tile_mode(self, name: str):
+        current = self.get_tile_mode(name)
+        idx = VIS_MODES.index(current) if current in VIS_MODES else 0
+        new_mode = VIS_MODES[(idx + 1) % len(VIS_MODES)]
+        self.tile_modes[name] = new_mode
         self.save()
+        return new_mode
 
-    def swap_tiles(self, tile1: str, tile2: str, layout: str = None):
-        """Swap positions of two tiles."""
-        layout = layout or self.layout
-        order = self.get_tile_order(layout).copy()
-        if tile1 in order and tile2 in order:
-            i1, i2 = order.index(tile1), order.index(tile2)
-            order[i1], order[i2] = order[i2], order[i1]
-            self.set_tile_order(order, layout)
+    def cycle_layout(self):
+        idx = LAYOUTS.index(self.layout) if self.layout in LAYOUTS else 0
+        self.layout = LAYOUTS[(idx + 1) % len(LAYOUTS)]
+        self.save()
+        return self.layout
+
+    def cycle_theme(self):
+        idx = THEME_ORDER.index(self.theme) if self.theme in THEME_ORDER else 0
+        self.theme = THEME_ORDER[(idx + 1) % len(THEME_ORDER)]
+        self.save()
+        return self.theme
 
     def set_autostart(self, enabled: bool):
         self.autostart = enabled
@@ -604,15 +1004,18 @@ class MystemSonitor(Gtk.Window):
         self._drag_x = 0
         self._drag_y = 0
 
-        # Window setup - no decorations
+        # Window setup
         self.set_title(APP_NAME)
         self.set_decorated(False)
         self.set_resizable(True)
         self.set_keep_above(True)
         self.set_app_paintable(True)
+        self.set_wmclass("mystem-sonitor", "Mystem Sonitor")
 
-        # Enable window drag
-        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
+        # Window drag
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK |
+                       Gdk.EventMask.BUTTON_RELEASE_MASK |
+                       Gdk.EventMask.POINTER_MOTION_MASK)
         self.connect('button-press-event', self._on_button_press)
         self.connect('button-release-event', self._on_button_release)
         self.connect('motion-notify-event', self._on_motion)
@@ -625,7 +1028,6 @@ class MystemSonitor(Gtk.Window):
         self.main_box.get_style_context().add_class('main-container')
         self.add(self.main_box)
 
-        # Custom header bar
         self._create_header()
 
         # Content
@@ -646,7 +1048,7 @@ class MystemSonitor(Gtk.Window):
         GLib.timeout_add(UPDATE_INTERVAL_MS, self._update)
 
     def _on_button_press(self, w, e):
-        if e.button == 1 and e.y < 35:  # Header area
+        if e.button == 1 and e.y < 40:
             self._dragging = True
             self._drag_x = e.x
             self._drag_y = e.y
@@ -660,20 +1062,35 @@ class MystemSonitor(Gtk.Window):
             self.move(x + int(e.x - self._drag_x), y + int(e.y - self._drag_y))
 
     def _create_header(self):
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         header.set_margin_start(10)
-        header.set_margin_end(5)
-        header.set_margin_top(5)
-        header.set_margin_bottom(5)
+        header.set_margin_end(6)
+        header.set_margin_top(6)
+        header.set_margin_bottom(6)
         header.get_style_context().add_class('custom-header')
 
-        # App icon/title
-        title = Gtk.Label(label=f"⚡ {APP_NAME}")
-        title.get_style_context().add_class('header-title')
-        header.pack_start(title, False, False, 0)
+        # Title
+        self.title_label = Gtk.Label(label=f"⚡ {APP_NAME}")
+        self.title_label.get_style_context().add_class('header-title')
+        header.pack_start(self.title_label, False, False, 0)
 
-        # Spacer
         header.pack_start(Gtk.Box(), True, True, 0)
+
+        # Layout button
+        self.layout_btn = Gtk.Button(label="▦")
+        self.layout_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self.layout_btn.get_style_context().add_class('header-btn')
+        self.layout_btn.set_tooltip_text("Switch layout")
+        self.layout_btn.connect('clicked', self._on_layout_click)
+        header.pack_end(self.layout_btn, False, False, 0)
+
+        # Theme button
+        self.theme_btn = Gtk.Button(label="◐")
+        self.theme_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self.theme_btn.get_style_context().add_class('header-btn')
+        self.theme_btn.set_tooltip_text("Switch theme")
+        self.theme_btn.connect('clicked', self._on_theme_click)
+        header.pack_end(self.theme_btn, False, False, 0)
 
         # Settings button
         settings_btn = Gtk.MenuButton()
@@ -681,46 +1098,15 @@ class MystemSonitor(Gtk.Window):
         settings_btn.add(Gtk.Label(label="⚙"))
         settings_btn.get_style_context().add_class('header-btn')
 
-        # Settings menu
         menu = Gtk.Menu()
 
-        # Visualization submenu (radio group)
-        vis_menu = Gtk.Menu()
-        vis_item = Gtk.MenuItem(label="Visualization")
-        vis_item.set_submenu(vis_menu)
-        vis_group = []
-        for mode in VIS_MODES:
-            item = Gtk.RadioMenuItem.new_with_label(vis_group, mode.capitalize())
-            vis_group = item.get_group()
-            item.set_active(mode == self.config.vis_mode)
-            item.connect('toggled', self._on_vis_change, mode)
-            vis_menu.append(item)
-        menu.append(vis_item)
-
-        # Layout submenu (radio group)
-        layout_menu = Gtk.Menu()
-        layout_item = Gtk.MenuItem(label="Layout")
-        layout_item.set_submenu(layout_menu)
-        layout_group = []
-        for layout in LAYOUTS:
-            item = Gtk.RadioMenuItem.new_with_label(layout_group, layout.capitalize())
-            layout_group = item.get_group()
-            item.set_active(layout == self.config.layout)
-            item.connect('toggled', self._on_layout_change, layout)
-            layout_menu.append(item)
-        menu.append(layout_item)
-
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Autostart toggle
         autostart_item = Gtk.CheckMenuItem(label="Autostart")
         autostart_item.set_active(self.config.autostart)
-        autostart_item.connect('toggled', self._on_autostart_toggle)
+        autostart_item.connect('toggled', lambda i: self.config.set_autostart(i.get_active()))
         menu.append(autostart_item)
 
         menu.append(Gtk.SeparatorMenuItem())
 
-        # About
         about_item = Gtk.MenuItem(label="About")
         about_item.connect('activate', self._show_about)
         menu.append(about_item)
@@ -729,14 +1115,14 @@ class MystemSonitor(Gtk.Window):
         settings_btn.set_popup(menu)
         header.pack_end(settings_btn, False, False, 0)
 
-        # Minimize button
+        # Minimize
         min_btn = Gtk.Button(label="─")
         min_btn.set_relief(Gtk.ReliefStyle.NONE)
         min_btn.get_style_context().add_class('header-btn')
         min_btn.connect('clicked', lambda b: self.iconify())
         header.pack_end(min_btn, False, False, 0)
 
-        # Close button
+        # Close
         close_btn = Gtk.Button(label="✕")
         close_btn.set_relief(Gtk.ReliefStyle.NONE)
         close_btn.get_style_context().add_class('header-btn-close')
@@ -745,57 +1131,71 @@ class MystemSonitor(Gtk.Window):
 
         self.main_box.pack_start(header, False, False, 0)
 
-    def _on_vis_change(self, item, mode):
-        if item.get_active() and self.config.vis_mode != mode:
-            self.config.vis_mode = mode
-            self.config.save()
-            self._build_tiles()
-            self.show_all()
+    def _on_layout_click(self, btn):
+        self.config.cycle_layout()
+        self._build_tiles()
+        self.show_all()
 
-    def _on_layout_change(self, item, layout):
-        if item.get_active() and self.config.layout != layout:
-            self.config.layout = layout
-            self.config.save()
-            self._build_tiles()
-            self.show_all()
+    def _on_theme_click(self, btn):
+        self.config.cycle_theme()
+        self._apply_css()
+        self._apply_theme_to_tiles()
 
-    def _on_autostart_toggle(self, item):
-        self.config.set_autostart(item.get_active())
+    def _on_tile_click(self, tile_name: str):
+        self.config.cycle_tile_mode(tile_name)
+        self._rebuild_tile(tile_name)
 
     def _show_about(self, item):
         dialog = Gtk.AboutDialog(transient_for=self)
         dialog.set_program_name(APP_NAME)
-        dialog.set_version("1.0.0")
-        dialog.set_authors(["alienxs2"])
-        dialog.set_comments("Advanced System Resource Monitor")
+        dialog.set_version("2.0.0")
+        dialog.set_authors(["Goncharenko Anton (alienxs2)"])
+        dialog.set_comments("System Monitor\nClick tiles to change style")
         dialog.set_license_type(Gtk.License.MIT_X11)
         dialog.run()
         dialog.destroy()
 
     def _create_widget(self, tile_name: str, label: str, unit: str = "%"):
-        """Create widget with tile-specific visualization mode."""
         mode = self.config.get_tile_mode(tile_name)
-        if mode == "gauge": widget = GaugeWidget(label, unit)
-        elif mode == "arc": widget = ArcWidget(label, unit)
-        elif mode == "ring": widget = RingWidget(label, unit)
-        elif mode == "minimal": widget = MinimalWidget(label, unit)
-        else: widget = BarWidget(label, unit)
-        return widget
+        theme = THEMES[self.config.theme]
 
-    def _wrap_tile(self, tile_name: str, widget):
-        """Wrap widget in TileContainer for click settings and drag-drop."""
-        return TileContainer(tile_name, widget, self.config, self._on_tile_mode_change, self._on_tile_reorder)
+        widgets = {
+            "gauge": GaugeWidget,
+            "arc": ArcWidget,
+            "ring": RingWidget,
+            "text": TextWidget,
+            "wave": WaveWidget,
+            "terminal": TerminalWidget,
+            "bar": BarWidget,
+        }
 
-    def _on_tile_mode_change(self, tile_name: str):
-        """Rebuild tiles when individual tile mode changes."""
-        self._build_tiles()
-        self.show_all()
+        widget_class = widgets.get(mode, BarWidget)
+        w = widget_class(label, unit)
+        w.set_theme(theme)
+        return w
 
-    def _on_tile_reorder(self, source: str, target: str):
-        """Handle tile reorder via drag-drop."""
-        self.config.swap_tiles(source, target)
-        self._build_tiles()
-        self.show_all()
+    def _rebuild_tile(self, tile_name: str):
+        if tile_name not in self.tiles:
+            return
+
+        container = self.tiles[tile_name]
+        labels = {"cpu": "CPU", "ram": "RAM", "swap": "Swap", "gpu": "GPU",
+                  "vram": "VRAM", "temp": "Temp", "disk": "Disk", "net": "Net"}
+        units = {"temp": "°C"}
+
+        if tile_name in ["disk", "net"]:
+            return
+
+        label = labels.get(tile_name, tile_name.upper())
+        unit = units.get(tile_name, "%")
+        widget = self._create_widget(tile_name, label, unit)
+        container.set_widget(widget)
+        container.show_all()
+
+    def _apply_theme_to_tiles(self):
+        theme = THEMES[self.config.theme]
+        for container in self.tiles.values():
+            container.set_theme(theme)
 
     def _build_tiles(self):
         for child in self.content.get_children():
@@ -804,112 +1204,159 @@ class MystemSonitor(Gtk.Window):
         self.tiles = {}
         layout = self.config.layout
 
-        if layout == "compact":
-            self._build_compact()
-        elif layout == "wide":
-            self._build_wide()
-        elif layout == "vertical":
-            self._build_vertical()
-        else:  # mini
-            self._build_mini()
-
+        builders = {
+            "compact": self._build_compact,
+            "wide": self._build_wide,
+            "vertical": self._build_vertical,
+            "mini": self._build_mini,
+            "dashboard": self._build_dashboard,
+            "panel": self._build_panel,
+        }
+        builders.get(layout, self._build_compact)()
         self._apply_size()
 
+    def _make_tile(self, name: str, label: str, unit: str = "%"):
+        container = TileContainer(name, self._on_tile_click)
+        widget = self._create_widget(name, label, unit)
+        container.set_widget(widget)
+        return container
+
+    def _make_io_tile(self, name: str, label: str):
+        mode = self.config.get_io_mode(name)
+        container = TileContainer(name, self._on_io_tile_click)
+        widget = IOWidget(label, mode)
+        widget.set_theme(THEMES[self.config.theme])
+        container.set_widget(widget)
+        return container
+
+    def _on_io_tile_click(self, tile_name: str):
+        new_mode = self.config.cycle_io_mode(tile_name)
+        if tile_name in self.tiles:
+            container = self.tiles[tile_name]
+            if container.inner and hasattr(container.inner, 'set_mode'):
+                container.inner.set_mode(new_mode)
+
     def _build_compact(self):
-        order = self.config.get_tile_order("compact")
+        """Compact 2x4 grid layout."""
         row1 = Gtk.Box(spacing=5, homogeneous=True)
         row2 = Gtk.Box(spacing=5, homogeneous=True)
 
-        # Create all widgets
-        tile_widgets = {
-            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
-            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
-            "swap": self._wrap_tile("swap", self._create_widget("swap", "Swap")),
-            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
-            "vram": self._wrap_tile("vram", self._create_widget("vram", "VRAM")),
-            "disk": self._wrap_tile("disk", IOWidget("Disk")),
-            "net": self._wrap_tile("net", IOWidget("Network")),
-            "temp": self._wrap_tile("temp", self._create_widget("temp", "Temp", "°C")),
+        self.tiles = {
+            "cpu": self._make_tile("cpu", "CPU"),
+            "ram": self._make_tile("ram", "RAM"),
+            "gpu": self._make_tile("gpu", "GPU"),
+            "temp": self._make_tile("temp", "Temp", "°C"),
+            "swap": self._make_tile("swap", "Swap"),
+            "vram": self._make_tile("vram", "VRAM"),
+            "disk": self._make_io_tile("disk", "Disk"),
+            "net": self._make_io_tile("net", "Net"),
         }
 
-        self.tiles = tile_widgets
+        for name in ["cpu", "ram", "gpu", "temp"]:
+            row1.pack_start(self.tiles[name], True, True, 0)
+        for name in ["swap", "vram", "disk", "net"]:
+            row2.pack_start(self.tiles[name], True, True, 0)
 
-        # Add in order
-        for i, name in enumerate(order):
-            if name in tile_widgets:
-                if i < 4:
-                    row1.pack_start(tile_widgets[name], True, True, 0)
-                else:
-                    row2.pack_start(tile_widgets[name], True, True, 0)
-
-        self.content.pack_start(row1, False, False, 0)
-        self.content.pack_start(row2, False, False, 0)
+        self.content.pack_start(row1, True, True, 0)
+        self.content.pack_start(row2, True, True, 0)
 
     def _build_wide(self):
-        order = self.config.get_tile_order("wide")
-        row = Gtk.Box(spacing=3, homogeneous=True)
-
-        tile_widgets = {
-            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
-            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
-            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
-            "temp": self._wrap_tile("temp", self._create_widget("temp", "Temp", "°C")),
-        }
-
-        self.tiles = tile_widgets
-
-        for name in order:
-            if name in tile_widgets:
-                row.pack_start(tile_widgets[name], True, True, 0)
-
-        self.content.pack_start(row, False, False, 0)
-
-    def _build_vertical(self):
-        order = self.config.get_tile_order("vertical")
-
-        tile_widgets = {
-            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
-            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
-            "swap": self._wrap_tile("swap", self._create_widget("swap", "Swap")),
-            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
-            "vram": self._wrap_tile("vram", self._create_widget("vram", "VRAM")),
-            "temp": self._wrap_tile("temp", self._create_widget("temp", "Temp", "°C")),
-            "disk": self._wrap_tile("disk", IOWidget("Disk")),
-            "net": self._wrap_tile("net", IOWidget("Network")),
-        }
-
-        self.tiles = tile_widgets
-
-        for name in order:
-            if name in tile_widgets:
-                self.content.pack_start(tile_widgets[name], False, False, 2)
-
-    def _build_mini(self):
-        order = self.config.get_tile_order("mini")
+        """Wide single row layout."""
         row = Gtk.Box(spacing=5, homogeneous=True)
 
-        tile_widgets = {
-            "cpu": self._wrap_tile("cpu", self._create_widget("cpu", "CPU")),
-            "ram": self._wrap_tile("ram", self._create_widget("ram", "RAM")),
-            "gpu": self._wrap_tile("gpu", self._create_widget("gpu", "GPU")),
+        self.tiles = {
+            "cpu": self._make_tile("cpu", "CPU"),
+            "ram": self._make_tile("ram", "RAM"),
+            "gpu": self._make_tile("gpu", "GPU"),
+            "temp": self._make_tile("temp", "Temp", "°C"),
+            "disk": self._make_io_tile("disk", "Disk"),
+            "net": self._make_io_tile("net", "Net"),
         }
 
-        self.tiles = tile_widgets
+        for name in ["cpu", "ram", "gpu", "temp", "disk", "net"]:
+            row.pack_start(self.tiles[name], True, True, 0)
 
-        for name in order:
-            if name in tile_widgets:
-                row.pack_start(tile_widgets[name], True, True, 0)
+        self.content.pack_start(row, True, True, 0)
 
-        self.content.pack_start(row, False, False, 0)
+    def _build_vertical(self):
+        """Vertical stacked layout."""
+        self.tiles = {
+            "cpu": self._make_tile("cpu", "CPU"),
+            "ram": self._make_tile("ram", "RAM"),
+            "gpu": self._make_tile("gpu", "GPU"),
+            "temp": self._make_tile("temp", "Temp", "°C"),
+            "disk": self._make_io_tile("disk", "Disk"),
+            "net": self._make_io_tile("net", "Net"),
+        }
+
+        for name in ["cpu", "ram", "gpu", "temp", "disk", "net"]:
+            self.content.pack_start(self.tiles[name], False, False, 0)
+
+    def _build_mini(self):
+        """Mini compact layout."""
+        row = Gtk.Box(spacing=4, homogeneous=True)
+
+        self.tiles = {
+            "cpu": self._make_tile("cpu", "CPU"),
+            "ram": self._make_tile("ram", "RAM"),
+            "gpu": self._make_tile("gpu", "GPU"),
+        }
+
+        for name in ["cpu", "ram", "gpu"]:
+            row.pack_start(self.tiles[name], True, True, 0)
+
+        self.content.pack_start(row, True, True, 0)
+
+    def _build_dashboard(self):
+        """Dashboard style with main + secondary."""
+        main_row = Gtk.Box(spacing=6, homogeneous=True)
+        secondary_row = Gtk.Box(spacing=4, homogeneous=True)
+
+        self.tiles = {
+            "cpu": self._make_tile("cpu", "CPU"),
+            "ram": self._make_tile("ram", "RAM"),
+            "gpu": self._make_tile("gpu", "GPU"),
+            "temp": self._make_tile("temp", "Temp", "°C"),
+            "swap": self._make_tile("swap", "Swap"),
+            "vram": self._make_tile("vram", "VRAM"),
+            "disk": self._make_io_tile("disk", "Disk"),
+            "net": self._make_io_tile("net", "Net"),
+        }
+
+        for name in ["cpu", "ram", "gpu"]:
+            main_row.pack_start(self.tiles[name], True, True, 0)
+        for name in ["temp", "swap", "vram", "disk", "net"]:
+            secondary_row.pack_start(self.tiles[name], True, True, 0)
+
+        self.content.pack_start(main_row, True, True, 0)
+        self.content.pack_start(secondary_row, False, False, 0)
+
+    def _build_panel(self):
+        """Horizontal panel strip."""
+        row = Gtk.Box(spacing=8, homogeneous=False)
+
+        self.tiles = {
+            "cpu": self._make_tile("cpu", "CPU"),
+            "ram": self._make_tile("ram", "RAM"),
+            "gpu": self._make_tile("gpu", "GPU"),
+            "temp": self._make_tile("temp", "°C", ""),
+        }
+
+        for name in ["cpu", "ram", "gpu", "temp"]:
+            row.pack_start(self.tiles[name], True, True, 0)
+
+        self.content.pack_start(row, True, True, 0)
 
     def _apply_size(self):
         sizes = {
-            "compact": (480, 220 if self.config.vis_mode in ["gauge", "arc", "ring"] else 180),
-            "wide": (400, 120 if self.config.vis_mode in ["gauge", "arc", "ring"] else 100),
-            "vertical": (130, 550 if self.config.vis_mode in ["gauge", "arc", "ring"] else 450),
-            "mini": (300, 100 if self.config.vis_mode in ["gauge", "arc", "ring"] else 80),
+            "compact": (440, 175),
+            "wide": (660, 95),
+            "vertical": (140, 450),
+            "mini": (300, 85),
+            "dashboard": (520, 180),
+            "panel": (420, 85),
         }
-        w, h = sizes.get(self.config.layout, (480, 180))
+        w, h = sizes.get(self.config.layout, (440, 175))
         self.set_default_size(w, h)
         self.resize(w, h)
 
@@ -919,129 +1366,113 @@ class MystemSonitor(Gtk.Window):
             self.set_icon_from_file(icon_path)
 
     def _apply_css(self):
-        css = b"""
-        .main-container {
-            background-color: #1a1a1e;
+        theme = THEMES[self.config.theme]
+        css = f"""
+        .main-container {{
+            background-color: {theme['bg']};
             border-radius: 10px;
-            border: 1px solid #333;
-        }
+            border: 1px solid rgba(255,255,255,0.1);
+        }}
 
-        .custom-header {
-            background-color: #252528;
+        .custom-header {{
+            background-color: {theme['header']};
             border-radius: 10px 10px 0 0;
-        }
+        }}
 
-        .header-title {
-            color: #4CAF50;
+        .header-title {{
+            color: {theme['accent']};
             font-weight: bold;
             font-size: 12px;
-        }
+        }}
 
-        .header-btn {
-            color: #888;
-            min-width: 24px;
-            min-height: 24px;
+        .header-btn {{
+            color: #999;
+            min-width: 26px;
+            min-height: 26px;
             padding: 0;
-            border-radius: 4px;
-        }
-        .header-btn:hover { background-color: #444; color: #fff; }
+            border-radius: 5px;
+            font-size: 13px;
+        }}
+        .header-btn:hover {{ background-color: rgba(255,255,255,0.1); color: #fff; }}
 
-        .header-btn-close {
-            color: #888;
-            min-width: 24px;
-            min-height: 24px;
+        .header-btn-close {{
+            color: #999;
+            min-width: 26px;
+            min-height: 26px;
             padding: 0;
-            border-radius: 4px;
-        }
-        .header-btn-close:hover { background-color: #e53935; color: #fff; }
+            border-radius: 5px;
+            font-size: 13px;
+        }}
+        .header-btn-close:hover {{ background-color: #e53935; color: #fff; }}
 
-        .bar-widget { padding: 5px; }
-        .bar-label { color: #888; font-size: 11px; }
-        .bar-value { font-size: 12px; }
-        .bar-details { color: #555; font-size: 9px; }
-
-        .health-bar, .health-bar trough {
-            min-height: 6px;
-            border-radius: 3px;
-            background-color: #333;
-        }
-        .health-bar progress { min-height: 6px; border-radius: 3px; }
-
-        .mini-label { color: #888; font-size: 10px; }
-        .mini-value { font-size: 14px; }
-
-        .io-label { color: #888; font-size: 10px; font-weight: bold; }
-        .io-read { color: #4FC3F7; font-size: 11px; font-weight: bold; }
-        .io-write { color: #FFB74D; font-size: 11px; font-weight: bold; }
-
-        menu { background-color: #2a2a2e; }
-        menuitem { color: #ccc; }
-        menuitem:hover { background-color: #444; }
-
-        .tile-container {
+        .tile-container {{
             border-radius: 6px;
-            transition: all 200ms ease;
-        }
-        .tile-container:hover {
-            background-color: rgba(255, 255, 255, 0.05);
-        }
-        .dragging {
-            opacity: 0.6;
-            background-color: rgba(76, 175, 80, 0.2);
-            border: 1px dashed #4CAF50;
-        }
-        """
+        }}
+        .tile-container:hover {{
+            background-color: rgba(255, 255, 255, 0.03);
+        }}
+
+        menu {{ background-color: {theme['header']}; border-radius: 6px; }}
+        menuitem {{ color: {theme['text']}; padding: 6px 12px; }}
+        menuitem:hover {{ background-color: rgba(255,255,255,0.1); }}
+        """.encode()
+
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
     def _update(self):
         try:
             # CPU
-            cpu = psutil.cpu_percent(interval=None)
-            freq = psutil.cpu_freq()
             if "cpu" in self.tiles:
-                self.tiles["cpu"].set_value(cpu, f"{freq.current:.0f}MHz" if freq else "")
+                cpu = psutil.cpu_percent(interval=None)
+                self.tiles["cpu"].set_value(cpu)
 
             # RAM
-            mem = psutil.virtual_memory()
             if "ram" in self.tiles:
-                self.tiles["ram"].set_value(mem.percent, f"{mem.used/(1024**3):.1f}/{mem.total/(1024**3):.0f}G")
+                mem = psutil.virtual_memory()
+                self.tiles["ram"].set_value(mem.percent)
 
             # Swap
-            swap = psutil.swap_memory()
             if "swap" in self.tiles:
-                self.tiles["swap"].set_value(swap.percent, f"{swap.used/(1024**3):.1f}/{swap.total/(1024**3):.0f}G")
+                swap = psutil.swap_memory()
+                self.tiles["swap"].set_value(swap.percent)
 
             # GPU
             gpu = GPUMonitor.get_info()
             if gpu:
                 if "gpu" in self.tiles:
-                    self.tiles["gpu"].set_value(gpu["util"], gpu["name"])
+                    self.tiles["gpu"].set_value(gpu["util"])
                 if "vram" in self.tiles:
                     vram = (gpu["mem_used"] / gpu["mem_total"]) * 100
-                    self.tiles["vram"].set_value(vram, f"{gpu['mem_used']:.0f}/{gpu['mem_total']:.0f}M")
+                    self.tiles["vram"].set_value(vram)
                 if "temp" in self.tiles:
-                    self.tiles["temp"].set_value(gpu["temp"], "GPU")
+                    self.tiles["temp"].set_value(gpu["temp"])
             else:
-                if "gpu" in self.tiles: self.tiles["gpu"].set_value(0, "N/A")
-                if "vram" in self.tiles: self.tiles["vram"].set_value(0, "N/A")
-                if "temp" in self.tiles: self.tiles["temp"].set_value(0, "N/A")
+                if "gpu" in self.tiles:
+                    self.tiles["gpu"].set_value(0)
+                if "vram" in self.tiles:
+                    self.tiles["vram"].set_value(0)
+                if "temp" in self.tiles:
+                    self.tiles["temp"].set_value(0)
 
             # Disk
             disk = psutil.disk_io_counters()
             if disk and self._last_disk and "disk" in self.tiles:
-                r = disk.read_bytes - self._last_disk.read_bytes
-                w = disk.write_bytes - self._last_disk.write_bytes
-                self.tiles["disk"].set_values(max(0, r), max(0, w))
+                r = max(0, disk.read_bytes - self._last_disk.read_bytes)
+                w = max(0, disk.write_bytes - self._last_disk.write_bytes)
+                self.tiles["disk"].set_values(r, w)
             self._last_disk = disk
 
             # Network
             net = psutil.net_io_counters()
             if net and self._last_net and "net" in self.tiles:
-                r = net.bytes_recv - self._last_net.bytes_recv
-                s = net.bytes_sent - self._last_net.bytes_sent
-                self.tiles["net"].set_values(max(0, r), max(0, s))
+                r = max(0, net.bytes_recv - self._last_net.bytes_recv)
+                s = max(0, net.bytes_sent - self._last_net.bytes_sent)
+                self.tiles["net"].set_values(r, s)
             self._last_net = net
 
         except Exception as e:
